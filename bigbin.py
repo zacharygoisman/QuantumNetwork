@@ -63,15 +63,25 @@ rate = []
 largest_flux = min(link_flux)
 
 for channel_number in k:
-    flux_total = np.sum(link_flux)
-    flux = flux_total/channel_number
-    if flux > largest_flux: #Just so the flux doesnt exceed the largest possible flux
+    if channel_number <= np.sum(np.floor(link_flux/largest_flux)): #If we dont have enough channels to completely fill everything
         flux = largest_flux
-    channel_allocation = np.floor(link_flux/flux)
-    for allocation_index in range(len(channel_allocation)): #Each link needs to have a bare minimum of 1 channel
-        if channel_allocation[allocation_index] == 0:
-            channel_allocation[allocation_index] = 1
+        channel_allocation = np.ones(len(link_flux))
+        filled_percentage = flux*channel_allocation/link_flux #Calculate percent filled of each link
+        used_channels = np.sum(channel_allocation)
+        while used_channels < channel_number:
+            channel_allocation[np.argmin(filled_percentage)] += 1 #Adds one to channel that is least filled
+            filled_percentage = channel_allocation/np.floor(link_flux/flux) #Calculate percent filled of each link
+            used_channels = np.sum(channel_allocation)
+    else:
+        flux_total = np.sum(link_flux)
+        flux = flux_total/channel_number #Simple flux determining method
+        if flux > largest_flux: #Makes sure we dont go over the largest flux amount
+            flux = largest_flux
+        remaining_flux = link_flux - flux #Flux if we remove guaranteed channel
+        channel_allocation = np.floor(remaining_flux/flux) #Allocates extra channels
+        channel_allocation = channel_allocation + 1 #Readds the guaranteed channel
 
+    #Saving and rate calculation
     channel_allocations_list.append(channel_allocation.copy())
     allocated_flux_list.append(flux)
     remainder = link_flux - channel_allocation*flux
@@ -97,7 +107,25 @@ plt.xlabel('Number of Channels')
 plt.ylabel('Leftover Flux Remainder')
 plt.title('Remainder Per Number of Channels')
 #plt.show()
-plt.savefig('outputs/iterate_flux_remainder.png')
+plt.savefig('outputs/bigbin_flux_remainder.png')
+
+pure_rates = [] #Loop to get pure rates for utility function comparisons
+for i in range(len(channel_allocations_array)):
+    pure_rate = 0
+    for j in range(len(y1_array)):
+        pure_rate += rate_equation(channel_allocations_array[i][j]*maximum_flux_array[i], y1_array[j], y2_array[j])
+    pure_rates.append(pure_rate)
+
+plt.figure(dpi=300)
+plt.plot(channels_used_array, np.sum(remainders_array, axis = 1)/np.sum(link_flux),label='Remainder percentage per channel iteration')
+plt.plot(channels_used_array, (1/l)*np.sum(remainders_array/link_flux, axis = 1),label='Average sum of remainder percentages per iteration')
+plt.xlabel('Number of Channels')
+plt.ylabel('Leftover Flux Remainder')
+plt.title('Remainder Per Number of Channels')
+plt.yscale('log')
+plt.legend(loc='best')
+#plt.show()
+plt.savefig('outputs/bigbin_flux_remainder_comp.png')
 
 plt.figure(dpi=300)
 plt.plot(channels_used_array, maximum_flux_array)
@@ -105,19 +133,21 @@ plt.xlabel('Number of Channels')
 plt.ylabel('Used Flux Per Channel')
 plt.title('Used Flux Per Number of Channels')
 #plt.show()
-plt.savefig('outputs/iterate_flux.png')
+plt.savefig('outputs/bigbin_flux.png')
 
 
 plt.figure(dpi=300)
-plt.title('Log Rate Utility')
+plt.title('Rate Utility')
 plt.xlabel('Number of Channels')
-plt.ylabel('Sum of Log of Rate Utility')
+plt.ylabel('Rate Utility')
 
 colors = ['blue','green','red','cyan','magenta','yellow','black','orange','purple','pink','lime','brown','teal']
 labels = ['Link AB','Link CD','Link EF','Link GH','Link IJ','Link KL','Link MN','Link OP','Link QR','Link ST','Link UV','Link WX','Link YZ']
-
-plt.plot(channels_used_array, rate)
-plt.savefig('outputs/iterate_rate_utility.png')
+plt.plot(channels_used_array, rate, label = 'Sum of Log of Rate Utility')
+plt.plot(channels_used_array, np.log10(pure_rates), label = 'Log of Sum of Rates')
+#plt.plot(channels_used_array, np.array(pure_rates)/l, label = 'Average of Sum of Rates')
+plt.legend(loc = 'best')
+plt.savefig('outputs/bigbin_rate_utility.png')
 #plt.show()
 plt.close()
 
@@ -151,5 +181,5 @@ plt.ylabel('Channel Allocations')
 plt.legend()
 
 plt.tight_layout()
-plt.savefig('outputs/iterate_three_plot.png')
+plt.savefig('outputs/bigbin_three_plot.png')
 #plt.show()

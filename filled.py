@@ -28,7 +28,7 @@ fidelity_limit = 0.7 #Changeable fidelity minimum line value
 #link_flux = 5*(np.random.rand(6)+0.1) #Create random link flux limits
 # print(link_flux)
 # minimum_link_flux = min(link_flux)
-k = np.arange(l,1000) #Number of available channels
+k = np.arange(l,200) #Number of available channels
 # flux = minimum_link_flux
 # iterative_channel_allocation = np.ones(len(link_flux)) #This is here so we can add to it after more iterations
 # new_flux = flux
@@ -140,6 +140,8 @@ remainders_array = np.array(remainders_list)
 channel_allocations_array = np.array(channel_allocations_list)
 rate = np.array(rate)
 
+# print(channel_allocations_list[-1])
+# print(maximum_flux_list[-1])
 
 plt.figure(dpi=300)
 plt.plot(channels_used_array, np.sum(remainders_array, axis = 1))
@@ -147,7 +149,25 @@ plt.xlabel('Number of Channels')
 plt.ylabel('Leftover Flux Remainder')
 plt.title('Remainder Per Number of Channels')
 #plt.show()
-plt.savefig('outputs/iterate_flux_remainder.png')
+plt.savefig('outputs/filled_flux_remainder.png')
+
+pure_rates = [] #Loop to get pure rates for utility function comparisons
+for i in range(len(channel_allocations_array)):
+    pure_rate = 0
+    for j in range(len(y1_array)):
+        pure_rate += rate_equation(channel_allocations_array[i][j]*maximum_flux_array[i], y1_array[j], y2_array[j])
+    pure_rates.append(pure_rate)
+
+plt.figure(dpi=300)
+plt.plot(channels_used_array, np.sum(remainders_array, axis = 1)/np.sum(link_flux),label='Remainder percentage per channel iteration')
+plt.plot(channels_used_array, (1/l)*np.sum(remainders_array/link_flux, axis = 1),label='Average sum of remainder percentages per iteration')
+plt.xlabel('Number of Channels')
+plt.ylabel('Leftover Flux Remainder')
+plt.title('Remainder Per Number of Channels')
+plt.yscale('log')
+plt.legend(loc='best')
+#plt.show()
+plt.savefig('outputs/filled_flux_remainder_comp.png')
 
 plt.figure(dpi=300)
 plt.plot(channels_used_array, maximum_flux_array)
@@ -155,19 +175,21 @@ plt.xlabel('Number of Channels')
 plt.ylabel('Used Flux Per Channel')
 plt.title('Used Flux Per Number of Channels')
 #plt.show()
-plt.savefig('outputs/iterate_flux.png')
+plt.savefig('outputs/filled_flux.png')
 
 
 plt.figure(dpi=300)
-plt.title('Log Rate Utility')
+plt.title('Rate Utility')
 plt.xlabel('Number of Channels')
-plt.ylabel('Sum of Log of Rate Utility')
-
+plt.ylabel('Rate Utility')
+plt.ylim([-3,1])
 colors = ['blue','green','red','cyan','magenta','yellow','black','orange','purple','pink','lime','brown','teal']
 labels = ['Link AB','Link CD','Link EF','Link GH','Link IJ','Link KL','Link MN','Link OP','Link QR','Link ST','Link UV','Link WX','Link YZ']
-
-plt.plot(channels_used_array, rate)
-plt.savefig('outputs/iterate_rate_utility.png')
+plt.plot(channels_used_array, rate, label = 'Sum of Log of Rate Utility')
+plt.plot(channels_used_array, np.log10(pure_rates), label = 'Log of Sum of Rates')
+#plt.plot(channels_used_array, np.array(pure_rates)/l, label = 'Average of Sum of Rates')
+plt.legend(loc = 'best')
+plt.savefig('outputs/filled_rate_utility.png')
 #plt.show()
 plt.close()
 
@@ -201,5 +223,8 @@ plt.ylabel('Channel Allocations')
 plt.legend()
 
 plt.tight_layout()
-plt.savefig('outputs/iterate_three_plot.png')
+plt.savefig('outputs/filled_three_plot.png')
 #plt.show()
+
+
+#TODO: Run methods but using the different utility functions like remainder, log rate, sum rate
