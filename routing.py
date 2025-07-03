@@ -26,14 +26,11 @@ def double_dijkstra(network, sources, tau = 0, d1 = 0, d2 = 0):
         u1, u2 = link_entry['link']
 
         for source in sources: #For each source we want to find the best lowest loss path from each user
-            try: #First user
-                path_u1 = nx.dijkstra_path(network, source=u1, target=source, weight='loss')
-                loss_u1 = nx.dijkstra_path_length(network, source=u1, target=source, weight='loss')
-            except nx.NetworkXNoPath:
-                continue
-            try: #Second user
-                path_u2 = nx.dijkstra_path(network, source=u2, target=source, weight='loss')
-                loss_u2 = nx.dijkstra_path_length(network, source=u2, target=source, weight='loss')
+            try:
+                path_u1 = nx.dijkstra_path(network, source=u1, target=source, weight="loss")
+                loss_u1 = nx.dijkstra_path_length(network, source=u1, target=source, weight="loss")
+                path_u2 = nx.dijkstra_path(network, source=u2, target=source, weight="loss")
+                loss_u2 = nx.dijkstra_path_length(network, source=u2, target=source, weight="loss")
             except nx.NetworkXNoPath:
                 continue
 
@@ -46,7 +43,6 @@ def double_dijkstra(network, sources, tau = 0, d1 = 0, d2 = 0):
 
         if not best_path_info: #If no best sources for a link then output as a warning
             print(f"No common sources for link {u1} -- {u2}")
-            #return False
 
     return network
 
@@ -71,7 +67,7 @@ def link_info_packaging(network, fidelity_limit, y1 = None, y2 = None):
     return network
 
 #Creates a list of every possible path from the set of optimal double dijkstra paths. It outputs this list of dictionaries which contain link information for each of the paths
-def path_combinations(network):
+def path_combinations(network, sort_type):
     """
     Inputs:
     network object containing double dijkstra information
@@ -105,8 +101,11 @@ def path_combinations(network):
         })
         path_id += 1
 
-    #Sort combinations by total_loss
-    sorted_results = sorted(results, key=lambda x: x['total_loss'])
+    #Sort
+    if sort_type == 'loss':
+        sorted_results = sorted(results, key=lambda r: (r['total_loss'], -len({p['path']['source'] for p in r['combo']}))) #Sort combinations by total loss and total number of sources
+    elif sort_type == 'hop':
+        sorted_results = sorted(results, key=lambda r: (np.mean([len(p['path']['path1'] + p['path']['path2']) - 1 for p in r['combo']]), r['total_loss'], -len({p['path']['source'] for p in r['combo']})))
     return sorted_results
 
 
@@ -124,7 +123,7 @@ def choose_paths(path_combinations): #TODO: Test other means of choosing for sou
     untested_paths = [path for path in path_combinations if path.get('usage_info') == 'untested']
     if untested_paths: #Choose the lowest loss case
         path_choice = untested_paths[0]
-        path_choice['usage_info'] = 'current' #Indicate specific path is being used
+        path_choice['usage_info'] = 'tested' #Indicate specific path is being used
         path_id = path_choice['path_id']
         return path_choice, path_id
     else: #No remaining paths

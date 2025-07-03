@@ -106,98 +106,18 @@ def matt(K, fidelity_limit, y1, y2, initial):
     print("Calculated Objective Value: ", objective_value)
     return k_vars, objective_value, mu, prelog_rates, optimal_mu, optimal_allocation
 
-from gekko import GEKKO
-import math
-
-def matt_comparison_gecko(K, fidelity_limit, y1, y2, initial):
-    """
-    Inputs:
-
-    
-    Outputs:
-
-    """
-    """
-    Same signature & outputs as matt_comparison, but written
-    in the style of Matts_Gecko_Rate().
-    
-    Returns:
-      - k_vars : list of GEKKO Var objects (you can replace by their .value if you prefer)
-      - objective_value : sum(log10(expr_i))
-      - mu : the GEKKO Var for mu
-      - prelog_rates : [expr_i for each link]
-      - optimal_mu : numeric mu.value[0]
-      - optimal_allocation : [int(k_i) for each link]
-    """
-    N_links = len(y1)
-    
-    # 1) Build GEKKO model
-    m = GEKKO(remote=False)
-    m.options.IMODE    = 3      # steady‐state
-    m.options.SOLVER   = 1      # APOPT
-    # (carry over your APOPT MINLP tweaks)
-    m.solver_options = [
-        'minlp_maximum_iterations 1000',
-        'minlp_gap 0.0001',
-        'minlp_branch_method 2',
-        'nlp_maximum_iterations 2000'
-    ]
-    
-    # 2) Decision vars
-    mu     = m.Var(value=initial, lb=1e-9)
-    k_vars = [m.Var(value=K//N_links, integer=True, lb=1, ub=K)
-              for _ in range(N_links)]
-    
-    # 3) Sum of channels ≤ K
-    m.Equation(m.sum(k_vars) <= K)
-    
-    # 4) Fidelity constraints & collect expr_i symbols
-    expr_syms = []
-    for i in range(N_links):
-        # exactly the same expr as in matt_comparison:
-        expr_i = (mu**2 * k_vars[i]**2
-                  + mu * k_vars[i] * (2*(y1[i] + y2[i]) + 1)
-                  + 4*y1[i]*y2[i])
-        expr_syms.append(expr_i)
-        
-        # F_i ≥ fidelity_limit[i]
-        F_i = 0.25*(1 + 3*mu*k_vars[i]/expr_i)
-        m.Equation(F_i >= fidelity_limit[i])
-    
-    # 5) Objective = maximize ∑ log(expr_i) ⇒ minimize −∑ ln(expr_i)
-    #    (GEKKO’s log() is natural log)
-    m.Obj(-m.sum([m.log(e) for e in expr_syms]))
-    
-    # 6) Solve
-    m.solve(disp=True)
-    
-    # 7) Extract results
-    optimal_mu        = mu.value[0]
-    optimal_allocation= [int(round(k.value[0])) for k in k_vars]
-    
-    # prelog_rates = the raw expr_i values at the solution
-    prelog_rates = []
-    for i in range(N_links):
-        ev = (optimal_mu**2 * optimal_allocation[i]**2
-              + optimal_mu * optimal_allocation[i] * (2*(y1[i]+y2[i]) + 1)
-              + 4*y1[i]*y2[i])
-        prelog_rates.append(ev)
-    
-    # objective_value in base-10
-    objective_value = sum(math.log(ev,10) for ev in prelog_rates)
-    
-    return k_vars, objective_value, mu, prelog_rates, optimal_mu, optimal_allocation
-
-
-
 
 def network_allocation(sources, path_choice, allocation_type = 'APOPT', initial_conditions = 0.001):
     """
     Inputs:
-
+    sources
+    path_choice
+    allocation_type
+    initial_conditions
     
     Outputs:
-
+    results
+    utility_sum
     """
     network_utility = 0
     output = []
@@ -222,7 +142,8 @@ def network_allocation(sources, path_choice, allocation_type = 'APOPT', initial_
             continue
         else:
             if allocation_type == 'comparison':
-                k_vars, objective_value, mu, prelog_rates, optimal_mu, optimal_allocation = matt_comparison_gecko(k, fidelity_limit, y1, y2, initial_conditions)
+                import compare
+                k_vars, objective_value, mu, prelog_rates, optimal_mu, optimal_allocation = compare.matt_comparison_gecko(k, fidelity_limit, y1, y2, initial_conditions)
             else: #Matt's MINLP solver
                 k_vars, objective_value, mu, prelog_rates, optimal_mu, optimal_allocation = matt(k, fidelity_limit, y1, y2, initial_conditions)
 
