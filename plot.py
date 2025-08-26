@@ -7,6 +7,18 @@ import matplotlib.lines as mlines
 import pathlib
 pathlib.Path("outputs").mkdir(exist_ok=True)
 
+def plot_network_final(network, previous_best_results):
+    if previous_best_results is None:
+        print("[plot] No feasible solution to draw – skipping plot_network_final")
+        return
+    # existing code follows …
+
+
+def source_allocation(previous_best_results, sources):
+    if previous_best_results is None:
+        print("[plot] No feasible solution to draw – skipping source_allocation")
+        return
+    # existing code follows …
 
 #This is a plot that compares the utility between the various reruns of the optimizer
 def utility_interference(all_utilities, all_utilities_no_interference):
@@ -17,9 +29,9 @@ def utility_interference(all_utilities, all_utilities_no_interference):
     """
     x_range = np.arange(1,len(all_utilities)+1) #Optimizer attempt number
     plt.figure(figsize=(10, 6))
-    plt.scatter(x_range, all_utilities, s=3, label = 'Points with Interference or Less Utility')
-    plt.scatter(x_range, all_utilities_no_interference, s=3, label = 'Best Utility Values')
-    plt.legend(loc = 'best')
+    plt.scatter(x_range, all_utilities, s=3)#, label = 'Points with Interference or Less Utility')
+    #plt.scatter(x_range, all_utilities_no_interference, s=3, label = 'Best Utility Values')
+    #plt.legend(loc = 'best')
     plt.title('Comparing Utilities of Successful and Failed Optimization Attempts')
     plt.xlabel('Successful Rerun Attempts')
     plt.ylabel('Utility')
@@ -33,6 +45,10 @@ def utility_interference_zoomed(all_utilities, all_utilities_no_interference):
     all_utilities is a list of all utilities determined through the optimizer
     all_utilities_no_interference is a list of all utilities with the failed ones being replaced with negative infinity
     """
+    if not all_utilities_no_interference or np.isneginf(all_utilities_no_interference).all():
+        print("[plot] No interference-free solutions – skipping zoomed plot")
+        return
+
     x_range = np.arange(1,len(all_utilities)+1) #Optimizer attempt number
     plt.figure(figsize=(10, 6))
     plt.scatter(x_range, all_utilities, s=3, label = 'Points with Interference or Less Utility')

@@ -7,6 +7,7 @@ from matplotlib.patches import Patch
 import numpy as np
 from scipy.optimize import fsolve
 import itertools
+from ortools.sat.python import cp_model
 
 #double_dijkstra finds the lowest loss paths (and losses) for every source and for every link
 def double_dijkstra(network, sources, tau = 0, d1 = 0, d2 = 0):
@@ -154,89 +155,96 @@ def extract_link_ch_counts(source_dicts, ordered_links):
 
 
 #check_interference checks the topology of the network in order to see if frequency channels overlap. If so then it will test other channel orders for the given link paths.
+
+
+
 def check_interference(path_choice, results, sources):
     """
-    For each link i, picks `k=link_ch_counts[i]` channels from source_freqs[src],
-    and assigns them (±) either to user1‐side or user2‐side (with a swap option),
-    so that no edge ever sees the same positive twice nor the same negative twice.
-    Returns a list [(to_u1, to_u2), …] or None if no assignment exists.
+    Decide k_i channels per link + an orientation bit (swap),
+    s.t. no physical edge ever carries the same (signed) channel twice.
+    Returns [(to_u1, to_u2), …]   or None if infeasible.
     """
-    paths_u1 = []
-    paths_u2 = []
-    link_sources = []
-    link_name = []
-    for link_data in path_choice['combo']:
-        paths_u1.append(link_data['path']['path1'])
-        paths_u2.append(link_data['path']['path1'])
-        link_sources.append(link_data['path']['source'])
-        link_name.append(link_data['link'])
-    link_ch_counts = extract_link_ch_counts(results, link_name)
-    source_freqs = sources
+    def edges(path):
+        return [tuple(sorted((path[i], path[i+1])))
+                for i in range(len(path)-1)]
 
-    n = len(paths_u1)
-    # convert node‐paths into edge‐lists
-    edges_u1 = [make_edges(p) for p in paths_u1]
-    edges_u2 = [make_edges(p) for p in paths_u2]
+    # unpack link data ----------------------------------------------------
+    links       = path_choice['combo']
+    nlinks      = len(links)
+    paths_u1    = [lk['path']['path1'] for lk in links]
+    paths_u2    = [lk['path']['path2'] for lk in links]      # ← REAL 2nd path
+    link_src    = [lk['path']['source'] for lk in links]
+    link_names  = [lk['link']            for lk in links]
+    k_vals      = extract_link_ch_counts(results, link_names)
 
-    used_pos = {}
-    used_neg = {}
-    assignment = [None] * n
+    edges_u1    = [edges(p) for p in paths_u1]
+    edges_u2    = [edges(p) for p in paths_u2]
+    all_edges   = set(e for el in edges_u1+edges_u2 for e in el)
+    all_ch      = sorted({c for src in link_src
+                            for c in sources[src]['available_channels']})
 
-    def backtrack(i):
-        if i == n:
-            return True
+    # model ---------------------------------------------------------------
+    m = cp_model.CpModel()
+    swap  = [m.NewBoolVar(f"swap_{i}") for i in range(nlinks)]
+    use   = {}              # (i,c)  channel chosen?
+    pos   = {}              # (i,e,c) channel c flows + on edge e for link i
+    neg   = {}              # (i,e,c) channel c flows - on edge e for link i
 
-        src = link_sources[i]
-        k   = link_ch_counts[i]
-        pool = source_freqs[src]['available_channels']
+    for i, src in enumerate(link_src):
+        pool = sources[src]['available_channels']
+        for c in pool:
+            use[i, c] = m.NewBoolVar(f"use_{i}_{c}")
+        m.Add(sum(use[i, c] for c in pool) == k_vals[i])
 
-        for combo in itertools.combinations(pool, k):
-            pos_set = set(combo)
-            neg_set = {-c for c in combo}
+        for c in pool:
+            for e in edges_u1[i] + edges_u2[i]:
+                pos[i, e, c] = m.NewBoolVar(f"p_{i}_{e}_{c}")
+                neg[i, e, c] = m.NewBoolVar(f"n_{i}_{e}_{c}")
 
-            # try both orientations
-            for swap in (False, True):
-                if not swap:
-                    pos_edges, neg_edges = edges_u1[i], edges_u2[i]
-                    to_u1, to_u2 = list(pos_set), list(neg_set)
-                else:
-                    pos_edges, neg_edges = edges_u2[i], edges_u1[i]
-                    to_u1, to_u2 = list(neg_set), list(pos_set)
+        # reify edge usage -----------------------------------------------
+        for c in pool:
+            # U1 arm:   swap=0 → +c,  swap=1 → –c
+            for e in edges_u1[i]:
+                m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
+                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i])
+                m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
+                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
 
-                # conflict on positive‐edges?
-                if any(e in used_pos and (pos_set & used_pos[e]) for e in pos_edges):
-                    continue
-                # conflict on negative‐edges?
-                if any(e in used_neg and (neg_set & used_neg[e]) for e in neg_edges):
-                    continue
+            # U2 arm:   opposite sign mapping
+            for e in edges_u2[i]:
+                m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
+                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i])
+                m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
+                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
 
-                # commit
-                assignment[i] = (to_u1, to_u2)
-                updated_p = []
-                for e in pos_edges:
-                    used_pos.setdefault(e, set()).update(pos_set)
-                    updated_p.append(e)
-                updated_n = []
-                for e in neg_edges:
-                    used_neg.setdefault(e, set()).update(neg_set)
-                    updated_n.append(e)
+    # edge-conflict: ≤1 pos and ≤1 neg per (edge, channel) --------------
+    for e in all_edges:
+        for c in all_ch:
+            pvars = [pos[i, e, c] for i in range(nlinks) if (i, e, c) in pos]
+            nvars = [neg[i, e, c] for i in range(nlinks) if (i, e, c) in neg]
+            if pvars:  m.Add(sum(pvars) <= 1)
+            if nvars:  m.Add(sum(nvars) <= 1)
 
-                if backtrack(i + 1):
-                    return True
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 30
+    if solver.Solve(m) not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return None
 
-                # undo
-                for e in updated_p:
-                    used_pos[e].difference_update(pos_set)
-                    if not used_pos[e]:
-                        del used_pos[e]
-                for e in updated_n:
-                    used_neg[e].difference_update(neg_set)
-                    if not used_neg[e]:
-                        del used_neg[e]
+    # assemble answer -----------------------------------------------------
+    assignment = []
+    for i, src in enumerate(link_src):
+        pool   = sources[src]['available_channels']
+        chosen = [c for c in pool if solver.BooleanValue(use[i, c])]
+        if solver.BooleanValue(swap[i]):
+            assignment.append(([-c for c in chosen], chosen))
+        else:
+            assignment.append((chosen, [-c for c in chosen]))
+    return assignment
 
-        return False
-
-    return assignment if backtrack(0) else None
 
 
 def main():

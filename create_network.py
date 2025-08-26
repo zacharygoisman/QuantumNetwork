@@ -214,9 +214,9 @@ def plot_network(network):
     plt.show()
 
 def main():
-    num_usr, num_src, num_edg, num_lnk= 10, 5, 40, 5
+    num_usr, num_src, num_edg, num_lnk= 5, 5, 10, 5
     loss_range=(1,30)
-    network, node_usr, sources = create_network(num_usr, num_src, num_edg, loss_range, num_channels_per_source=[None], topology='dense', density = 1)
+    network, node_usr, sources = create_network(num_usr, num_src, num_edg, loss_range, num_channels_per_source=[None], topology='star', density = 0.5)
     network = create_links(network, node_usr, num_lnk, link_pairs = None)
     plot_network(network)
 

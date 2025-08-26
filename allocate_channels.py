@@ -61,7 +61,14 @@ def matt(K, fidelity_limit, y1, y2, initial):
     m = GEKKO(remote=False)
     m.options.IMODE = 3  # steady-state optimization mode
     m.options.SOLVER = 1  # use APOPT (which supports MINLP)
-    m.solver_options = ['minlp_maximum_iterations 1000', 'minlp_gap 0.0001','minlp_branch_method 2','nlp_maximum_iterations 2000'] #TODO: make this part of initial maybe
+    m.solver_options = [
+        'minlp_maximum_iterations 5000',   # was 1000
+        'minlp_gap_tol 0.0001',            # correct keyword
+        'minlp_branch_method 2',
+        'nlp_maximum_iterations 5000'      # was 2000
+    ]
+
+
     # Decision variable: mu (continuous, positive)
     mu = m.Var(value=initial, lb=1e-9)
 

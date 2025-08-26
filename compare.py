@@ -280,9 +280,9 @@ def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determine
 
     # Allocation bars
     plt.figure()
-    plt.title('Channel Allocation')
-    plt.xlabel('Number of Channels')
-    plt.ylabel('Channels Used')
+    plt.title('Channel Allocation', fontsize=18)
+    plt.xlabel('Number of Channels', fontsize=18)
+    plt.ylabel('Channels Used', fontsize=18)
 
 def channel_bar_plot(channel_numbers, k_vars_array, text):
     case_num = text[-1]
@@ -345,11 +345,11 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
 def rate_bar_plot(channel_numbers, k_vars_array, objective_value, mu_determined, tau, y1_array, y2_array, fidelity_limit, text):
     case_num = text[-1]
     floored_ratio_array = np.asarray(k_vars_array)
-    #Log of rate utility function
+
     plt.figure()
-    plt.title('Log Rate Utility for Ratio Method')
-    plt.xlabel('Number of Channels')
-    plt.ylabel('Log Rate Utility')
+    plt.title('Fitness over Total Available Channels', fontsize=18)
+    plt.xlabel('Number of Total Available Channels', fontsize=18)
+    plt.ylabel('Fitness', fontsize=18)
     channel_str = []
     for channel_number in channel_numbers:
         channel_str.append(str(channel_number))
@@ -389,7 +389,7 @@ def rate_bar_plot(channel_numbers, k_vars_array, objective_value, mu_determined,
                 linestyle='--',
                 label='Max Total Fitness')
 
-    plt.legend(loc='best')
+    plt.legend(loc='best', fontsize=12)
     plt.savefig('outputs/comp_rate_utility_'+str(case_num)+'.png')
     #plt.show()
     plt.close()
