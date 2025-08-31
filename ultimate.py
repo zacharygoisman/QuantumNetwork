@@ -1,11 +1,11 @@
-# ultimate.py  –  parallel driver, lean and robust  (with “Option A” fix)
+#ultimate.py -- Code that calls the main functions
 import numpy as np, os, traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
-
-import create_network, routing, allocate_channels, plot
 import time
 
-# ---------------- worker -------------------------------------------------
+import create_network, routing, allocate_channels, plot #My cool inputs B)
+
+#Worker
 def evaluate_combo(combo, sources):
     """Run APOPT + CP-SAT for one path-combo and return a summary dict."""
     try:
@@ -26,51 +26,47 @@ def evaluate_combo(combo, sources):
                     used_sources=0)        # placeholder
 
 
-# ---------------- main ---------------------------------------------------
+#Main
 def main():
-    start_time = time.time()
-    # ————————————————————————————————— parameters you’ll tune
-    # num_usr, num_src, num_edg, num_lnk = 10, 5, 100, 5
-    # loss_range              = (10, 20)
-    # fidelity_limit          = np.repeat(0.7, num_lnk)
-    # num_channels_per_source = [5] * num_src
-    # STOP_PERCENT            = 0.10   # evaluate 10 % of combos
-    # LOSS_MULTIPLIER         = 100    # early loss cut-off
-    # ——————————————————————————————————————————————————————
+    start_time = time.time() #Optional timer
     num_usr, num_src, num_edg, num_lnk= 6, 3, 100, 3 #Note that number of iterations will be num_src^num_link
     loss_range=(10,20)
-    # y1 = [0, 0.0034, 0, 0.0299, 0.0385, 0.0625, 0.0733, 0, 0.1106, 0.125, 0.1489, 0]
-    # y2 = [0, 0.0006, 0.0357, 0.0051, 0.0066, 0.0107, 0.0126, 0.1818, 0.019, 0.0214, 0.0256, 0.2979]
     fidelity_limit = np.repeat(0.7,num_lnk)
     tau = 1e-9
     d1 = 100
     d2 = 3500
-    sort_type = 'loss' #Sort by average network hops or total network loss
+    sort_type = 'loss' #Sort by average network hops ('hop') or total network loss ('loss)
     link_pairs = None
     num_channels_per_source = [None] #[None] assumes 5 channels per source 
-    STOP_PERCENT = 0.01 #Percent between 0 and 1
-    STOP_PERCENT = 1#00 * 1/(num_src**num_lnk)
+    STOP_PERCENT = 1 #Percent between 0 and 1 
     LOSS_MULTIPLIER = 30 #Percent must be greater than 1
 
-
+    #Network Creation
     net, users, sources = create_network.create_network(
         num_usr, num_src, num_edg, loss_range, num_channels_per_source,
         topology='dense', density=0.5
     )
+    
+    #Link Creation
     net = create_network.create_links(net, users, num_lnk)
+
+    #Dijkstra Lowest Loss Paths
     net = routing.double_dijkstra(net, sources, tau, d1, d2)
+
+    #Packages the y1, y2, and fidelity limit into each link
     net = routing.link_info_packaging(net, fidelity_limit)
 
-    combos      = routing.path_combinations(net, 'loss')
-    max_index   = int(len(combos) * STOP_PERCENT)
-    min_loss    = combos[0]['total_loss']
+    #Determines the routing combinations we use and in which order they will be run through
+    combos      = routing.path_combinations(net, sort_type)
+    max_index   = int(len(combos) * STOP_PERCENT) #Calculate the last index to run through
+    min_loss    = combos[0]['total_loss'] #Stores lowest loss combination
 
-    # tracking arrays
+    #Storing arrays and best values
     all_util, all_util_no_int = [], []
     all_loss, all_srcs        = [], []
     best_util, best_res       = -np.inf, None
 
-    # -------------- parallel search -------------------------------------
+    #Parallel Search
     with ProcessPoolExecutor(max_workers=max(1, os.cpu_count() - 1)) as pool:
         futures = {pool.submit(evaluate_combo, c, sources): c['path_id']
                    for c in combos[:max_index]
