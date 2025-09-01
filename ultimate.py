@@ -1,4 +1,6 @@
-#ultimate.py -- Code that calls the main functions
+#ultimate.py
+#Code that calls the main functions
+
 import numpy as np, os, traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import time

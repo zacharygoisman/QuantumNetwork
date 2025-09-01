@@ -4,9 +4,11 @@
 #Packages
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from scipy.optimize import fsolve
 from gekko import GEKKO
 import math
+import string
 
 def compute_fidelity_rate(tau, mu, y1_val, y2_val):
     """
@@ -135,10 +137,10 @@ def matt_comparison_gecko(K, fidelity_limit, y1, y2, initial):
     m.solve(disp=False)
     
     # Output the solution:
-    print("Optimal mu =", mu.value[0])
-    print("Optimal channel allocation (k_i):")
-    for i in range(N_links):
-        print(f" Link {i+1}: k = {int(round(k_vars[i].value[0]))}")
+    # print("Optimal mu =", mu.value[0])
+    # print("Optimal channel allocation (k_i):")
+    # for i in range(N_links):
+    #     print(f" Link {i+1}: k = {int(round(k_vars[i].value[0]))}")
     
     # For reference, compute the final normalized objective value:
     prelog_rates = []
@@ -156,246 +158,299 @@ def matt_comparison_gecko(K, fidelity_limit, y1, y2, initial):
     return k_vars, objective_value, mu, prelog_rates
 
 #Fidelity and rate plot
-def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determined, tau, y1_array, y2_array, fidelity_limit, text):
+def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determined,
+                       tau, y1_array, y2_array, fidelity_limit, text):
     case_num = text[-1]
-    if case_num == '1':
-        xlimit = 1.2
-    elif case_num == '2':
-        xlimit = 0.8
-    elif case_num == '3':
-        xlimit = 0.2
-    elif case_num == '4':
-        xlimit = 0.6
-    else:
-        xlimit = 1
+    xlimit = {'1': 1.2, '2': 0.8, '3': 0.2, '4': 0.7}.get(case_num, 1.0)
+
     l = len(y1_array)
-    fig, axs = plt.subplots((l + 1) // 2, 2, figsize=(11, 8))
-    line_handles = []  # List to store handles for creating a global legend
-    line_labels = []  # List to store labels for creating a global legend
 
-    mu_total = 1.2/tau #1.2 just to extend the line further
-    mu_channel_array = []
+    # --- layout rules (unchanged) ---
+    if l == 5:
+        rows, cols = 3, 2
+        legend_mode = 'panel'
+        legend_tile_index = 1*cols + 1
+        fig_size = (6.1, 7.0)
+        wspace, hspace = 0.35, 0.35
+        bottom_margin = 0.06
+    elif l == 12:
+        rows, cols = 4, 3
+        legend_mode = 'figure'
+        legend_tile_index = None
+        fig_size = (11.0, 8.6)
+        wspace, hspace = 0.35, 0.40
+        bottom_margin = 0.06
+    else:
+        cols = 2 if l <= 6 else 3
+        rows = (l + cols - 1) // cols
+        legend_mode = 'figure'
+        legend_tile_index = None
+        fig_size = (11, 8)
+        wspace, hspace = 0.35, 0.40
+        bottom_margin = 0.06
+
+    fig, axs = plt.subplots(rows, cols, figsize=fig_size)
+    fig.subplots_adjust(wspace=wspace, hspace=hspace, bottom=bottom_margin)
+    if rows*cols == 1:
+        axs = np.array([[axs]])
+    elif rows == 1:
+        axs = np.array([axs])
+    elif cols == 1:
+        axs = axs[:, None]
+
+    # Colors
+    matlab_blue  = '#0072BD'
+    matlab_orang = '#D95319'
+
+    line_handles, line_labels = [], []
+    proxy_hline = Line2D([0], [0], color='k', linestyle='dotted', linewidth=0.8,
+                         label='Fidelity threshold')
+    proxy_vline = Line2D([0], [0], color='k', linestyle='--', linewidth=0.8,
+                         label='Max allowed flux')
+
+    mu_total = 1.2 / tau
+    mu_channel_array = [mu_determined[i] / tau for i in range(len(k_list))]
+
     floored_ratio_array = []
-    channel_numbers = []
-    all_link_used_channels = []
-    for k_index in range(len(k_list)):
-        mu_channel_array.append(mu_determined[k_index]/tau)
-        floored_ratio_array.append(np.concatenate(k_vars_array[k_index]))
-        channel_numbers.append(np.concatenate(k_vars_array[k_index]))
-        
-    for link_number in range(l):
-        y1 = y1_array[link_number]
-        y2 = y2_array[link_number]
-        mu = np.linspace(1E-6, mu_total, 1000) #1E-6 to prevent divide by 0 errors
-        markers = ['o', '^', 's', 'd', 'x']
-        ax = axs[link_number % ((l + 1) // 2), link_number // ((l + 1) // 2)]
+    for i in range(len(k_list)):
+        arr = np.concatenate(k_vars_array[i])   # length may be 11 for K=12/24
+        if len(arr) < l:
+            arr = np.pad(arr, (0, l - len(arr)), mode='constant', constant_values=0.0)
+        elif len(arr) > l:
+            arr = arr[:l]
+        floored_ratio_array.append(arr)
+
+    base_markers = ['o', '^', 's', 'd', 'x', 'v', 'P', '*']  # circle, triangle, square, diamond, ...
+    def pick_marker(i): return base_markers[i % len(base_markers)]
+
+    letters = string.ascii_uppercase
+    link_labels = [letters[2*i] + letters[2*i+1] for i in range(l)]
+
+    for link_idx in range(l):
+        r, c = divmod(link_idx if legend_mode != 'panel' else
+                      (link_idx if link_idx < legend_tile_index else link_idx+1), cols)
+        ax = axs[r, c]
+
+        ax.minorticks_on()
+        ax.tick_params(axis='both', which='both',
+                       direction='in', top=True, right=True, labelsize=12)
+        ax.spines['top'].set_visible(True)
+        ax.spines['right'].set_visible(True)
+        ax.xaxis.set_ticks_position('both')
+        ax.yaxis.set_ticks_position('both')
+
+        y1, y2 = y1_array[link_idx], y2_array[link_idx]
+        mu = np.linspace(1e-6, mu_total, 1000)
         fidelity, rate, flux = compute_fidelity_rate(tau, mu, y1, y2)
-        line1, = ax.plot(tau * mu, fidelity, label='Fidelity', c='tab:blue')
-        line2, = ax.plot(tau * mu, rate, label='Rate/Max Rate', c='tab:orange')
-        if link_number == 0:  # To prevent duplicates in the legend
-            line_handles.extend([line1, line2])
-            line_labels.extend(['Fidelity', 'Rate/Max Rate'])
-        link_used_channels = []
-        link_rates = []
-        #link_cost_functions = []
-        for channel_index in range(len(channel_numbers)):
-            fidelity, rate, flux = compute_fidelity_rate(tau, mu_channel_array[channel_index] * floored_ratio_array[channel_index][link_number], y1, y2)
-            link_used_channels.append(floored_ratio_array[channel_index][link_number])
-            link_rates.append(rate)
-            #link_cost_functions.append(cost_function)
-            scatter = ax.scatter(flux, fidelity, label=str(channel_numbers[channel_index]), marker=markers[channel_index], c='tab:blue')
-            ax.scatter(flux, rate, marker = markers[channel_index], c='tab:orange') #marker = "$"+str(channel_numbers[channel_index])+"$", c='tab:orange')
-            ax.set_xlim([0,xlimit])
-            ax.set_ylim([0,1])
-            if link_number == 0:  # Add only once to legend
-                line_handles.append(scatter)
-                line_labels.append(str(k_list[channel_index]))
+        max_rate = compute_R_max_full(y1, y2)
+        rate = rate / max_rate
 
-        # fidelity_min = fidelity_limit[link_number]
-        # def max_flux_equation(x):
-        #     return 0.25 * (1 + 3 * x / (x**2 + (2 * y1 + 2 * y2 + 1) * x + 4 * y1 * y2)) - fidelity_min
-        # initial_guess = 1
-        # max_flux = fsolve(max_flux_equation, initial_guess)
-        fidelity_min = fidelity_limit[link_number]
+        line1, = ax.plot(tau * mu, fidelity, label='Fidelity (Model)', c=matlab_blue)
+        line2, = ax.plot(tau * mu, rate,     label=r'$\mathcal{R}/\mathcal{R}_{\max}$ (Model)', c=matlab_orang)
+        if not line_handles:
+            line_handles.extend([line1, line2, proxy_hline, proxy_vline])
+            line_labels.extend(['Fidelity (Model)',
+                                r'$\mathcal{R}/\mathcal{R}_{\max}$ (Model)',
+                                'Fidelity Threshold',
+                                'Max Allowed Flux'])
 
-        # Always draw the horizontal fidelity threshold
-        ax.axhline(fidelity_min, color='k', linestyle='--')
+        # Plot GA markers ONLY if allocation > 0 for that link and K
+        for ki in range(len(k_list)):
+            alloc = floored_ratio_array[ki][link_idx]
+            if alloc <= 0:
+                continue
+            f_mu = mu_channel_array[ki] * alloc
+            f_fid, f_rate, f_flux = compute_fidelity_rate(tau, f_mu, y1, y2)
 
-        # Only try to solve for the x where fidelity == fidelity_min
-        # if the threshold actually lies within the sampled fidelity curve:
+            f_rate = f_rate / max_rate
+            m = pick_marker(ki)
+            sc1 = ax.scatter(f_flux, f_fid, marker=m,
+                             facecolors='none', edgecolors=matlab_blue, linewidths=1.2,
+                             clip_on=False, zorder=3)
+            ax.scatter(f_flux, f_rate, marker=m,
+                       facecolors='none', edgecolors=matlab_orang, linewidths=1.2,
+                       clip_on=False, zorder=3)
+            if len(line_labels) < 4 + len(k_list):
+                line_handles.append(sc1)
+                line_labels.append(f'K={k_list[ki]} (APOPT)')
+
+            #print(f_flux/alloc)
+
+        fid_min = fidelity_limit[link_idx]
+        ax.axhline(fid_min, color='k', linestyle='dotted', linewidth=0.8)
         def max_flux_equation(x):
-            return 0.25 * (1 + 3 * x / (x**2 + (2 * y1 + 2 * y2 + 1) * x + 4 * y1 * y2)) - fidelity_min
-
+            return 0.25 * (1 + 3 * x / (x**2 + (2*y1 + 2*y2 + 1)*x + 4*y1*y2)) - fid_min
         try:
-            initial_guess = 1
-            max_flux = fsolve(max_flux_equation, initial_guess)
-
-            ax.axvline(max_flux, color='k', linestyle='--') #Add maximum possible flux line based on the fidelity limit
+            max_flux = fsolve(max_flux_equation, 1.0)
+            ax.axvline(max_flux, color='k', linestyle='--', linewidth=0.8)
         except Exception:
-            # if fsolve still fails, just skip the vertical line
             pass
 
+        ax.set_xlim([0, xlimit])
+        ax.set_ylim([0, 1])
 
-        
-        #ax.axhline(fidelity_limit[link_number], color='k', linestyle='--') #Add fidelity limit horizontal line
-        all_link_used_channels.append(link_used_channels)
-        # all_rates.append(link_rates)
-        # all_link_cost_functions.append(link_cost_functions)
+        ax.text(0.95, 0.05, link_labels[link_idx],
+                transform=ax.transAxes, ha='right', va='bottom',
+                fontsize=12, fontweight='bold')
 
-    if l % 2 != 0:
-        fig.delaxes(axs[-1, -1])
+    # Legends
+    if legend_mode == 'panel':
+        r, c = divmod(legend_tile_index, cols)
+        ax_leg = axs[r, c]
+        ax_leg.axis('off')
+        ax_leg.legend(line_handles, line_labels, loc='center',
+                      frameon=True, fancybox=True, framealpha=1.0,
+                      edgecolor='0.3', fontsize=12)
+    else:
+        fig.legend(handles=line_handles, labels=line_labels,
+                   loc='upper center', bbox_to_anchor=(0.5, 0.995),
+                   ncol=4, frameon=True, fancybox=True, framealpha=1.0,
+                   edgecolor='0.3', fontsize=12, columnspacing=1.2, handletextpad=0.8)
 
-    # Add a global legend
-    fig.legend(handles=line_handles, labels=line_labels, loc='upper right', bbox_to_anchor=(.99, .95))
-    # Add global figure labels
-    fig.text(0.5, 0.02, 'x (Dimensionless flux)', ha='center')
-    fig.text(0.02, 0.5, 'y (Rate or Fidelity)', va='center', rotation='vertical')
-    fig.text(0.5, .95, 'Fidelity and EBR vs Flux Plots', ha='center')
-    # Adjust layout, save and close
-    plt.tight_layout(rect=[0.03, 0.03, 0.85, 0.95])  # Adjust the tight_layout to accommodate the legend
-    plt.savefig('outputs/comp_link_fidelity_'+str(case_num)+'.png')  # Save the figure to a file
-    #plt.show()
+    fig.text(0.5, 0.005, 'Dimensionless Flux x', ha='center', fontsize=14)
+    plt.savefig(f'outputs/comp_link_fidelity_{case_num}.png', dpi=300)
     plt.close()
 
-    # #Allocation bars
-    # plt.figure()
-    # plt.title('Channel Allocation')
-    # plt.xlabel('Number of Channels')
-    # plt.ylabel('Channels Used')
-    # channel_str = []
-    # for channel_number in channel_numbers:
-    #     channel_str.append(str(channel_number))
-    # colors = ['blue','green','red','cyan','magenta','yellow','black','orange','purple','pink','lime','brown','teal']
-    # labels = ['Link AB','Link CD','Link EF','Link GH','Link IJ','Link KL','Link MN','Link OP','Link QR','Link ST','Link UV','Link WX','Link YZ']
-    # all_link_used_channels = np.array(all_link_used_channels)
-    # bottom_val = all_link_used_channels[0] - all_link_used_channels[0]
-    # for i in range(len(all_link_used_channels)):
-    #     plt.bar(channel_str, np.array(floored_ratio_array)[:,i], bottom = bottom_val, color = colors[i], label = labels[i])
-    #     bottom_val+=np.array(floored_ratio_array)[:,i]
-    # #plt.bar(channel_str, np.array(k) - np.sum(all_link_used_channels, axis=0), bottom = bottom_val, color = 'tab:blue', label = 'Null Link')
-    # plt.legend(loc='best')
-    # plt.savefig('outputs/channel_barplot.png')
-    # #plt.show()
-    # plt.close()
-
-    # Allocation bars
-    plt.figure()
-    plt.title('Channel Allocation', fontsize=18)
-    plt.xlabel('Number of Channels', fontsize=18)
-    plt.ylabel('Channels Used', fontsize=18)
 
 def channel_bar_plot(channel_numbers, k_vars_array, text):
     case_num = text[-1]
     channel_str = [str(c) for c in channel_numbers]
+    n_bars = len(channel_numbers)
 
-    colors = [
-        '#D95F02',   # orange           – Link AB
-        '#EFB618',   # golden yellow    – Link CD
-        '#7F26B2',   # deep violet      – Link EF
-        '#6BA42C',   # olive-ish green  – Link GH
-        '#49B5E7',   # sky-blue         – Link IJ
-        '#8B1C1A',   # maroon           – Link KL
-        '#003BFF',   # vivid blue       – Link MN
-        '#017501',   # dark green       – Link OP
-        '#FF0000',   # red              – Link QR
-        '#B526FF',   # purple           – Link ST
-        '#FF00FF',   # magenta          – Link UV
-        '#000000'    # black            – Link WX
-    ]
-    labels  = ['Link AB','Link CD','Link EF','Link GH','Link IJ',
-            'Link KL','Link MN','Link OP','Link QR','Link ST',
-            'Link UV','Link WX','Link YZ']
+    # MATLAB R2014b "gem" palette (cycled to cover any count)
+    gem = ['#0072BD', '#D95319', '#EDB120', '#7E2F8E',
+           '#77AC30', '#4DBEEE', '#A2142F', '#003BFF', '#017501', 
+           '#FF0000', '#B526FF', '#FF00FF', '#000000']  # 13 colors
 
-    floored_ratio_array = np.asarray(k_vars_array)
+    def cycle_from(idx, n):
+        return [gem[(idx + i) % len(gem)] for i in range(n)]
+    
+    # Legend labels (extend if you ever have more)
+    labels = ['Link AB','Link CD','Link EF','Link GH','Link IJ',
+              'Link KL','Link MN','Link OP','Link QR','Link ST',
+              'Link UV','Link WX','Link YZ']
 
-    # Start the stack at zero for every bar
-    bottom_val = np.zeros_like(channel_numbers, dtype=float)
+    # ---- Convert ragged GEKKO outputs to a dense numeric matrix [n_bars x L] ----
+    numeric_rows = []
+    max_links = 0
+    for kv in k_vars_array:  # kv is a list of GEKKO Vars for one K
+        row = [int(round(v.value[0])) for v in kv]
+        numeric_rows.append(row)
+        if len(row) > max_links:
+            max_links = len(row)
 
-    channel_sum = []
-    for link_number in range(len(floored_ratio_array[:, 0])):
-        channel_sum.append(np.sum(floored_ratio_array[link_number]))
-    null_link = np.asarray(channel_numbers) - channel_sum   # residual capacity
-    # If any channel is already over-allocated, clip negatives to zero
-    null_link = np.clip(null_link, 0, None)
+    # Pad rows with zeros on the right to length max_links
+    alloc_matrix = np.zeros((n_bars, max_links), dtype=float)
+    for r, row in enumerate(numeric_rows):
+        alloc_matrix[r, :len(row)] = row
 
-    plt.bar(channel_str,
-            null_link,
-            bottom=bottom_val,
-            color='tab:blue',          # pick any unused colour
-            label='Null Link')
+    # ---- Plot ----
+    fig, ax = plt.subplots(figsize=(6, 4.5))
 
-    bottom_val += null_link
+    # Grid and ticks
+    ax.grid(True, axis='y', linestyle='--', linewidth=0.6, color='0.85')
+    ax.set_axisbelow(True)
+    ax.tick_params(axis='both', labelsize=18, direction='in', length=4, width=1.0)
+    ax.tick_params(top=True, right=True, which='both', direction='in')
 
-    # --- Plot each real link ----------------------------------------------------
-    for i in range(len(k_vars_array[0])):          # loop over links
-        plt.bar(channel_str,
-                np.concatenate(floored_ratio_array[:,i]),
-                bottom=bottom_val,
-                color=colors[i],
-                label=labels[i])
-        bottom_val += np.concatenate(floored_ratio_array[:,i])            # grow the stack
+    # Null Link (residual capacity) – uses gem[0] (blue)
+    total_per_bar = alloc_matrix.sum(axis=1)
+    null_link = np.clip(np.asarray(channel_numbers) - total_per_bar, 0, None)
+    bottom = np.zeros(n_bars, dtype=float)
+    ax.bar(channel_str, null_link, bottom=bottom,
+           color=gem[0], edgecolor='black', linewidth=0.7, label='Null Link')
+    bottom += null_link
 
+    # Link stacks – start palette at gem[1] (orange), cycle as needed
+    link_colors = cycle_from(1, max_links)
+    for i in range(max_links):
+        heights = alloc_matrix[:, i]
+        ax.bar(channel_str, heights, bottom=bottom,
+               color=link_colors[i], edgecolor='black', linewidth=0.7,
+               label=labels[i] if i < len(labels) else f'Link {i+1}')
+        bottom += heights
 
+    # Labels & legend
+    ax.set_ylabel('No. of Channels', fontsize=18)
+    ax.set_xlabel('K', fontsize=18)
 
-    plt.legend(loc='best')
+    leg_cols = 2 if max_links >= 12 else 1
+    ax.legend(loc='upper left', fontsize=12,
+              frameon=True, fancybox=True, framealpha=1.0,
+              edgecolor='0.3', ncol=leg_cols)
+
     plt.tight_layout()
-    plt.savefig('outputs/comp_channel_barplot_'+str(case_num)+'.png')
+    plt.savefig(f'outputs/comp_channel_barplot_{case_num}.png', dpi=300)
     plt.close()
 
-def rate_bar_plot(channel_numbers, k_vars_array, objective_value, mu_determined, tau, y1_array, y2_array, fidelity_limit, text):
-    case_num = text[-1]
-    floored_ratio_array = np.asarray(k_vars_array)
 
-    plt.figure()
-    plt.title('Fitness over Total Available Channels', fontsize=18)
-    plt.xlabel('Number of Total Available Channels', fontsize=18)
-    plt.ylabel('Fitness', fontsize=18)
-    channel_str = []
-    for channel_number in channel_numbers:
-        channel_str.append(str(channel_number))
-    # mu_channels = mu_determined
-    # rate = rate_equation(np.array(floored_ratio_array)[0,0]*tau*mu_channels, y1_array[0], y2_array[0]) * 0 #Just to make an array of 0s
-    # for i in range(len(k_vars_array)):
-    #     rate += np.log10(rate_equation(np.concatenate(floored_ratio_array[:,i])*tau*mu_channels, y1_array[i], y2_array[i]))
-    plt.bar(channel_str, objective_value) #, bottom = bottom_val, color = colors[i], label = labels[i])
+def rate_bar_plot(channel_numbers, k_vars_array, objective_value,
+                  mu_determined, tau, y1_array, y2_array, fidelity_limit, text):
+    # case → y-limits
+    case_num = str(text)[-1]
+    ylimit_map = {
+        '1': [4.9, 5.001],
+        '2': [2.0, 4.0],
+        '3': [0.2, 1.0],
+        '4': [3.0, 8.0],
+    }
+    ylimit = ylimit_map.get(case_num, None)
+
+    matlab_blue = '#0072BD'  # MATLAB default blue
+
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+
+    # remove title / x label; keep y label
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_ylabel('Fitness', fontsize=18)
+
+    # bars: MATLAB blue, thin black border
+    channel_str = [str(c) for c in channel_numbers]
+    ax.bar(channel_str, objective_value,
+           color=matlab_blue, edgecolor='black', linewidth=0.8)
+    #print(objective_value)
+
+    # compute “best possible” horizontal line
     max_total_fitness = 0.0
-
-    for i, (y1, y2, f_th) in enumerate(zip(y1_array, y2_array, fidelity_limit)):
-        # precompute expr‐coeffs
+    for (y1, y2, f_th) in zip(y1_array, y2_array, fidelity_limit):
         A = 2*(y1 + y2) + 1
         B = 4*y1*y2
-        # the unconstrained R_max for this link
         R_max_i = compute_R_max_full(y1, y2)
-
         if f_th <= 0:
-            # zero‐threshold ⇒ we can achieve R_max ⇒ normalized = 1.0
             normalized_i = 1.0
         else:
-            # solve F(x)=f_th
             def fidelity_eq(x):
                 return 0.25*(1 + 3*x/(x*x + A*x + B)) - f_th
-            # initial guess for x
             x_thresh, = fsolve(fidelity_eq, 1.0)
-            # rate at exactly f_th
-            expr_val      = x_thresh**2 + A*x_thresh + B
+            expr_val       = x_thresh**2 + A*x_thresh + B
             rate_at_thresh = expr_val * math.log2(2*f_th)
             normalized_i   = rate_at_thresh / R_max_i
-
         max_total_fitness += normalized_i
 
-    # draw the “best possible” horizontal line
-    plt.axhline(max_total_fitness,
-                color='k',
-                linestyle='--',
-                label='Max Total Fitness')
+    ax.axhline(max_total_fitness, color='k', linestyle='--', label='Max Total Fitness')
 
-    plt.legend(loc='best', fontsize=12)
-    plt.savefig('outputs/comp_rate_utility_'+str(case_num)+'.png')
-    #plt.show()
-    plt.close()
+    # ticks: inside and on all four sides; hide x numbers; enlarge y numbers
+    ax.minorticks_on()
+    ax.tick_params(axis='both', which='both', direction='in', top=True, right=True)
+    ax.tick_params(axis='x', which='both', labelbottom=False)  # hide x tick labels
+    ax.tick_params(axis='y', labelsize=18)                     # bigger y numbers
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.spines['top'].set_visible(True)
+    ax.spines['right'].set_visible(True)
+
+    if ylimit is not None:
+        ax.set_ylim(ylimit)
+
+    ax.legend(loc='upper left', fontsize=15)
+
+    fig.savefig(f'outputs/comp_rate_utility_{case_num}.png', dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
 
 #Function to trigger all calculations and plots for each case
-def run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial = 0.001):
+def run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial = 0.001, skip = False):
     '''
     Inputs:
     k_list is an array of source channel amounts
@@ -411,7 +466,13 @@ def run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial = 0.001):
     mu_array = []
     objective_array = []
     for k in k_list:
-        k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit, y1, y2, initial)
+        if skip:
+            if k in [12, 24]: #Remove last link for case 4 on the first two like in the paper
+                k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit[:-1], y1[:-1], y2[:-1], initial)
+            else:
+                k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit, y1, y2, initial)
+        else:
+            k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit, y1, y2, initial)
         k_vars_array.append(k_vars)
         rate_array.append(prelog_rates)
         mu_array.append(mu.value[0])
@@ -453,7 +514,7 @@ def main():
     y2 = [0, 0.0006, 0.0357, 0.0051, 0.0066, 0.0107, 0.0126, 0.1818, 0.019, 0.0214, 0.0256, 0.2979]
     fidelity_limit = np.repeat(0.7, len(y1))
     text = 'Case 4'
-    run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial = 0.001)
+    run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial = 0.001, skip = True) #skip allows us to skip the last link for K = 12 and 24 like in the paper
 
 
 if __name__ == "__main__":

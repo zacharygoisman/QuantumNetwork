@@ -186,12 +186,12 @@ def plot_network(network):
                 alpha=0.5
             )
 
-    # Draw edge labels showing only loss values.
-    edge_labels = {(u, v): f"{data['loss']:.2f}" for u, v, data in network.edges(data=True)}
-    nx.draw_networkx_edge_labels(network, pos, edge_labels=edge_labels, font_size=8)
+    # # Draw edge labels showing only loss values.
+    # edge_labels = {(u, v): f"{data['loss']:.2f}" for u, v, data in network.edges(data=True)}
+    # nx.draw_networkx_edge_labels(network, pos, edge_labels=edge_labels, font_size=8)
 
-    # Draw node labels.
-    nx.draw_networkx_labels(network, pos, font_size=10, font_weight='bold')
+    # # Draw node labels.
+    # nx.draw_networkx_labels(network, pos, font_size=10, font_weight='bold')
 
     # # Build the legend with link information including channel assignments.
     # legend_elements = []
@@ -209,14 +209,14 @@ def plot_network(network):
 
     # Add the legend to the plot.
     #plt.legend(handles=legend_elements, loc='best', fontsize='small')
-    plt.title("Network Topology")
+    #plt.title("Network Topology")
     plt.axis('off')
     plt.show()
 
 def main():
-    num_usr, num_src, num_edg, num_lnk= 5, 5, 10, 5
+    num_usr, num_src, num_edg, num_lnk= 9, 6, 20, 5
     loss_range=(1,30)
-    network, node_usr, sources = create_network(num_usr, num_src, num_edg, loss_range, num_channels_per_source=[None], topology='star', density = 0.5)
+    network, node_usr, sources = create_network(num_usr, num_src, num_edg, loss_range, num_channels_per_source=[None], topology='ring', density = 0.4)
     network = create_links(network, node_usr, num_lnk, link_pairs = None)
     plot_network(network)
 

@@ -1,0 +1,22 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore output plots
+outputs/
+*.png
+*.jpg
+*.pdf
+
+# Ignore logs
+*.log
+
+# Ignore notebooks checkpoints
+.ipynb_checkpoints/
+
+# Ignore other
+*.txt
+*.js
+*.css
+*test.py
