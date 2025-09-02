@@ -155,9 +155,6 @@ def extract_link_ch_counts(source_dicts, ordered_links):
 
 
 #check_interference checks the topology of the network in order to see if frequency channels overlap. If so then it will test other channel orders for the given link paths.
-
-
-
 def check_interference(path_choice, results, sources):
     """
     Decide k_i channels per link + an orientation bit (swap),
@@ -194,9 +191,9 @@ def check_interference(path_choice, results, sources):
         pool = sources[src]['available_channels']
         for c in pool:
             use[i, c] = m.NewBoolVar(f"use_{i}_{c}")
-        m.Add(sum(use[i, c] for c in pool) == k_vals[i])
+        m.Add(sum(use[i, c] for c in pool) == k_vals[i]) #Set how many channels we can use for each link
 
-        for c in pool:
+        for c in pool:  #Create positive and negative channels on both paths
             for e in edges_u1[i] + edges_u2[i]:
                 pos[i, e, c] = m.NewBoolVar(f"p_{i}_{e}_{c}")
                 neg[i, e, c] = m.NewBoolVar(f"n_{i}_{e}_{c}")
