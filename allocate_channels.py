@@ -72,11 +72,15 @@ def matt(K, fidelity_limit, y1, y2, initial):
     # Decision variable: mu (continuous, positive)
     mu = m.Var(value=initial, lb=1e-9)
 
-    # Decision variables: k_i (integer, at least 1, and upper bounded by K)
-    k_vars = [m.Var(value=K//N_links, integer=True, lb=1, ub=K) for i in range(N_links)]
+    if N_links == 1: #If single link, we force one channel to decrease the chance of interference
+        k_vars = [m.Var(value=1, integer=True, lb=1, ub=1)]
+        m.Equation(sum(k_vars) == 1)
+    else:
+        # Decision variables: k_i (integer, at least 1, and upper bounded by K)
+        k_vars = [m.Var(value=K//N_links, integer=True, lb=1, ub=K) for i in range(N_links)]
 
-    # Constraint: Sum of channels must equal K
-    m.Equation(sum(k_vars) <= K)
+        # Constraint: Sum of channels must equal K
+        m.Equation(sum(k_vars) <= K)
 
     # Fidelity constraints for each link:
     #  0.25*(1 + (3*mu*k_i)/(mu^2*k_i^2 + mu*k_i*(2*(y1_i+y2_i)+1) + 4*y1_i*y2_i)) >= fidelity_limit

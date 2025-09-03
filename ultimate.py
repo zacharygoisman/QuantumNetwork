@@ -31,7 +31,7 @@ def evaluate_combo(combo, sources):
 #Main
 def main():
     start_time = time.time() #Optional timer
-    num_usr, num_src, num_edg, num_lnk= 10, 6, 100, 5 #Note that number of iterations will be num_src^num_link
+    num_usr, num_src, num_edg, num_lnk= 10, 2, 100, 6 #Note that number of iterations will be num_src^num_link
     loss_range=(10,20)
     fidelity_limit = np.repeat(0.7,num_lnk)
     tau = 1e-9
@@ -39,10 +39,10 @@ def main():
     d2 = 3500
     sort_type = 'loss' #Sort by average network hops ('hop') or total network loss ('loss)
     link_pairs = None
-    num_channels_per_source = [4, 4, 4, 4, 4, 4] #[None] assumes 5 channels per source 
+    num_channels_per_source = [100, 100] #[None] assumes 5 channels per source 
     
     #Stop conditions
-    STOP_NUMBER = 100 #Run this many attempts
+    STOP_NUMBER = 200 #Run this many attempts
     if STOP_NUMBER != 0:
         total = num_src**num_lnk
         STOP_PERCENT = STOP_NUMBER/total #Percent between 0 and 1 to determine the percent of attempts we try
@@ -50,7 +50,9 @@ def main():
             STOP_PERCENT = 1 #Percent between 0 and 1 to determine the percent of attempts we try
     else:
         STOP_PERCENT = 1 #Percent between 0 and 1 to determine the percent of attempts we try
-    LOSS_MULTIPLIER = 100000 #Percent must be greater than 1. Minimum loss times this is what loss value we stop at
+    LOSS_MULTIPLIER = 1000000 #Percent must be greater than 1. Minimum loss times this is what loss value we stop at
+
+    #TODO MAKE it run until n successes
 
     #Network Creation
     net, users, sources = create_network.create_network(
