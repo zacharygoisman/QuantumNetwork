@@ -20,3 +20,5 @@ outputs/
 *.js
 *.css
 *test.py
+*.csv
+*.json
