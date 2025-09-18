@@ -4,10 +4,7 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 import random
-# import matplotlib.colors as mcolors
-# from matplotlib.patches import Patch
 import numpy as np
-# from scipy.optimize import fsolve
 
 #create_network allows one to make an arbitrary network given user inputs. This also contains the various topology presets.
 def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_per_source=[None], topology=None, density = 0.5):
@@ -42,7 +39,6 @@ def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_pe
         print(f"Too few edges specified. Setting number of edges to minimum possible: {min_edges}")
         num_edg = min_edges
 
-
     #Topology presets:
     if topology == 'star': #One source in the middle with users surrounding
         node_src = [f"S0"]  #Only one central source
@@ -72,14 +68,14 @@ def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_pe
         num_ring_nodes = len(ring_nodes) #Form the ring
         if num_ring_nodes > 1:
             for i in range(num_ring_nodes):
-                network.add_edge(ring_nodes[i], ring_nodes[(i + 1) % num_ring_nodes])  # Circular connection
+                network.add_edge(ring_nodes[i], ring_nodes[(i + 1) % num_ring_nodes])  #Circular connection
         #Add sources to ring
         all_star_nodes = node_usr
         for node in all_star_nodes:
             central_src = random.choice(node_src)  #Randomly select a source from the ring
             network.add_edge(node, central_src)  #Connect to a source in the ring
 
-    elif topology == 'kite': #Kite Topology: 3 users and 2 sources
+    elif topology == 'kite': #Kite Topology: 3 users and 2 sources #TODO influence loss values of kite edges
         node_src = [f"Alice_S",f"Bob_S"]
         node_usr = [f"Alice",f"Bob",f"Charlie"]
         network.add_nodes_from(node_src, node_type='source')
@@ -155,7 +151,7 @@ def plot_network(network):
     pos = nx.spring_layout(network)
     plt.figure(figsize=(12, 10))
 
-    # Draw nodes with colors based on node type.
+    #Draw nodes with colors based on node type.
     node_colors = []
     for node, data in network.nodes(data=True):
         if data['node_type'] == 'source':
@@ -166,15 +162,15 @@ def plot_network(network):
             node_colors.append('gray')
     nx.draw_networkx_nodes(network, pos, node_color=node_colors, node_size=500)
 
-    # Draw all network edges in lightgray.
+    #Draw all network edges in lightgray.
     nx.draw_networkx_edges(network, pos, edge_color='lightgray', width=1)
 
-    # Draw the links along their computed paths with their unique colors.
+    #Draw the links along their computed paths with their unique colors.
     for desired_link in network.graph['desired_links']:
         if 'channels_assigned' in desired_link:
             link_color = desired_link['color']
             paths = desired_link['paths']
-            # Combine both paths (user1->source and user2->source)
+            #Combine both paths (user1->source and user2->source)
             edges_u1 = list(zip(paths['user1'], paths['user1'][1:]))
             edges_u2 = list(zip(paths['user2'], paths['user2'][1:]))
             edges_in_link = edges_u1 + edges_u2
@@ -186,37 +182,39 @@ def plot_network(network):
                 alpha=0.5
             )
 
-    # # Draw edge labels showing only loss values.
-    # edge_labels = {(u, v): f"{data['loss']:.2f}" for u, v, data in network.edges(data=True)}
-    # nx.draw_networkx_edge_labels(network, pos, edge_labels=edge_labels, font_size=8)
+    ##Draw edge labels showing only loss values.
+    #edge_labels = {(u, v): f"{data['loss']:.2f}" for u, v, data in network.edges(data=True)}
+    #nx.draw_networkx_edge_labels(network, pos, edge_labels=edge_labels, font_size=8)
 
-    # # Draw node labels.
-    # nx.draw_networkx_labels(network, pos, font_size=10, font_weight='bold')
+    ##Draw node labels.
+    #nx.draw_networkx_labels(network, pos, font_size=10, font_weight='bold')
 
-    # # Build the legend with link information including channel assignments.
-    # legend_elements = []
-    # for desired_link in network.graph['desired_links']:
-    #     if 'channels_assigned' in desired_link and 'frequencies' in desired_link:
-    #         link = desired_link['link']
-    #         # Determine the source from one of the paths (user1's path end)
-    #         source = desired_link['paths']['user1'][-1]
-    #         total_loss = desired_link['total_loss']
-    #         link_color = desired_link['color']
-    #         freqs = desired_link['frequencies']  # Expects a dict with 'user1' and 'user2'
-    #         # Format the label to include the channels in order (user1 then user2)
-    #         label = f"Link {link[0]}-{source}-{link[1]}, Channels: {freqs['user1']}/{freqs['user2']}, Loss={total_loss:.2f}"
-    #         legend_elements.append(Patch(facecolor=link_color, edgecolor='k', label=label))
+    ##Build the legend with link information including channel assignments.
+    #legend_elements = []
+    #for desired_link in network.graph['desired_links']:
+    #    if 'channels_assigned' in desired_link and 'frequencies' in desired_link:
+    #        link = desired_link['link']
+    #        #Determine the source from one of the paths (user1's path end)
+    #        source = desired_link['paths']['user1'][-1]
+    #        total_loss = desired_link['total_loss']
+    #        link_color = desired_link['color']
+    #        freqs = desired_link['frequencies']  #Expects a dict with 'user1' and 'user2'
+    #        #Format the label to include the channels in order (user1 then user2)
+    #        label = f"Link {link[0]}-{source}-{link[1]}, Channels: {freqs['user1']}/{freqs['user2']}, Loss={total_loss:.2f}"
+    #        legend_elements.append(Patch(facecolor=link_color, edgecolor='k', label=label))
 
-    # Add the legend to the plot.
+    #Add the legend to the plot.
     #plt.legend(handles=legend_elements, loc='best', fontsize='small')
     #plt.title("Network Topology")
     plt.axis('off')
     plt.show()
 
 def main():
-    num_usr, num_src, num_edg, num_lnk= 9, 6, 20, 5
+    num_usr, num_src, num_edg, num_lnk, top = 7, 1, 20, 5, 'star' #Star
+    num_usr, num_src, num_edg, num_lnk, top = 9, 6, 20, 5, 'ring' #Ring
+    #num_usr, num_src, num_edg, num_lnk, top = 8, 5, 20, 5, 'dense' #Dense
     loss_range=(1,30)
-    network, node_usr, sources = create_network(num_usr, num_src, num_edg, loss_range, num_channels_per_source=[None], topology='ring', density = 0.4)
+    network, node_usr, sources = create_network(num_usr, num_src, num_edg, loss_range, num_channels_per_source=[None], topology=top, density = 0.4)
     network = create_links(network, node_usr, num_lnk, link_pairs = None)
     plot_network(network)
 

@@ -9,6 +9,10 @@ from scipy.optimize import fsolve
 from gekko import GEKKO
 import math
 import string
+import os
+import contextlib
+
+import allocate_channels
 
 def compute_fidelity_rate(tau, mu, y1_val, y2_val):
     """
@@ -35,7 +39,7 @@ def compute_R_max_full(y1_val, y2_val):
     """
     For a given link (with parameters y1 and y2), compute the maximum possible
     rate from the rate equation
-         Rate(x) = [ x^2 + (2*(y1+y2)+1)*x + 4*y1*y2 ] * log2( F(x) )
+         Rate(x) = [ x^2 + (2*(y1+y2)+1)*x + 4*y1*y2 ] * log2( 2F(x) )
     where
          F(x) = 0.25*(1 + 3*x / [ x^2 + (2*(y1+y2)+1)*x + 4*y1*y2 ])
     The function samples x in a fixed interval and returns the maximum value.
@@ -134,7 +138,9 @@ def matt_comparison_gecko(K, fidelity_limit, y1, y2, initial):
     # --------------------------------------------------------
     # 4) Solve the MINLP.
     # --------------------------------------------------------
-    m.solve(disp=False)
+    with open(os.devnull, 'w') as devnull:
+        with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+            m.solve(disp=False)
     
     # Output the solution:
     # print("Optimal mu =", mu.value[0])
@@ -308,7 +314,7 @@ def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determine
                    edgecolor='0.3', fontsize=12, columnspacing=1.2, handletextpad=0.8)
 
     fig.text(0.5, 0.005, 'Dimensionless Flux x', ha='center', fontsize=14)
-    plt.savefig(f'outputs/comp_link_fidelity_{case_num}.png', dpi=300)
+    plt.savefig(f'outputs/comp_link_fidelity_{case_num}.svg', dpi=300)
     plt.close()
 
 
@@ -380,7 +386,7 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
               edgecolor='0.3', ncol=leg_cols)
 
     plt.tight_layout()
-    plt.savefig(f'outputs/comp_channel_barplot_{case_num}.png', dpi=300)
+    plt.savefig(f'outputs/comp_channel_barplot_{case_num}.svg', dpi=300)
     plt.close()
 
 
@@ -445,7 +451,7 @@ def rate_bar_plot(channel_numbers, k_vars_array, objective_value,
 
     ax.legend(loc='upper left', fontsize=15)
 
-    fig.savefig(f'outputs/comp_rate_utility_{case_num}.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'outputs/comp_rate_utility_{case_num}.svg', dpi=300, bbox_inches='tight')
     plt.close(fig)
 
 
@@ -467,7 +473,7 @@ def run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial = 0.001, skip =
     objective_array = []
     for k in k_list:
         if skip:
-            if k in [12, 24]: #Remove last link for case 4 on the first two like in the paper
+            if k in [12, 24]: #Remove last link for case 4 on the first two like in the paper #TODO update this with latest APOPT
                 k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit[:-1], y1[:-1], y2[:-1], initial)
             else:
                 k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit, y1, y2, initial)

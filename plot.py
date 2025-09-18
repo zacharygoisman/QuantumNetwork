@@ -1,11 +1,26 @@
 #All the plotting code
 import matplotlib.pyplot as plt
-import numpy as np
-import allocate_channels
+import matplotlib as mpl
 import networkx as nx
 import matplotlib.lines as mlines
 import pathlib
+import numpy as np
 pathlib.Path("outputs").mkdir(exist_ok=True)
+import matplotlib as mpl
+
+mpl.rcParams.update({
+    "axes.titlesize": 18,
+    "axes.labelsize": 18,
+    "xtick.labelsize": 18,
+    "ytick.labelsize": 18,
+    "legend.fontsize": 14,
+    #ticks inside & on all sides globally
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.top": True,
+    "ytick.right": True,
+})
+
 
 def _to_int_channels(k):
     """
@@ -19,7 +34,7 @@ def _to_int_channels(k):
     import numpy as np
 
     try:
-        # GEKKO variable?
+        #GEKKO variable?
         if hasattr(k, 'value'):
             v = k.value
             if isinstance(v, (list, tuple, np.ndarray)):
@@ -28,22 +43,21 @@ def _to_int_channels(k):
                 return int(round(float(v[0])))
             return int(round(float(v)))
 
-        # Numpy array / list
+        #Numpy array / list
         if isinstance(k, (list, tuple, np.ndarray)):
             arr = np.asarray(k, dtype=float)
             if arr.size == 0:
                 return 0
             if arr.size == 1:
                 return int(round(float(arr.item())))
-            # If it's a vector (e.g., 0/1 flags), sum it
+            #If it's a vector (e.g., 0/1 flags), sum it
             return int(round(float(arr.sum())))
 
-        # Numpy scalar or plain number
+        #Numpy scalar or plain number
         return int(round(float(k)))
     except Exception:
-        # Last-ditch attempt
+        #Last-ditch attempt
         try:
-            import numpy as np
             return int(round(float(np.asarray(k).item())))
         except Exception:
             return 0
@@ -77,7 +91,7 @@ def _augment_legend_with_frequencies(ax, freqs_by_link):
 
 
     
-# --- MATLAB "gem" palette (cycled) + typography defaults ---
+#--- MATLAB "gem" palette (cycled) + typography defaults ---
 GEM = ['#0072BD', '#D95319', '#EDB120', '#7E2F8E',
        '#77AC30', '#4DBEEE', '#A2142F', '#003BFF',
        '#017501', '#FF0000', '#B526FF', '#FF00FF', '#000000']
@@ -85,7 +99,6 @@ GEM = ['#0072BD', '#D95319', '#EDB120', '#7E2F8E',
 def gem_colors(n, start=0):
     return [GEM[(start+i) % len(GEM)] for i in range(n)]
 
-import matplotlib as mpl
 mpl.rcParams.update({
     "axes.titlesize": 18,
     "axes.labelsize": 18,
@@ -94,71 +107,12 @@ mpl.rcParams.update({
     "legend.fontsize": 14
 })
 
-def plot_source_allocation(K_values, allocations_by_link, link_labels):
-    """
-    Build a stacked bar chart like your reference figure.
-
-    Parameters
-    ----------
-    K_values : list[int]        # e.g., [5, 10, 20, 40]
-    allocations_by_link : list[list[int]]
-        Matrix shape (n_links x n_K). Row i is counts for link i across each K.
-        Example for 5 links -> [[1,2,4,9], [1,2,4,8], ...]
-    link_labels : list[str]     # e.g., ["Null Link","Link AB","Link CD",...]
-
-    Output: outputs/source_allocation.png
-    """
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    K_values = list(K_values)
-    A = np.asarray(allocations_by_link, dtype=float)  # (n_links, n_K)
-    n_links, n_k = A.shape
-    assert len(K_values) == n_k, "K axis length must match columns of allocations_by_link"
-
-    colors = gem_colors(n_links)
-    # If "Null Link" exists, force it to index 0 (like your figure)
-    order = list(range(n_links))
-    if "Null Link" in link_labels:
-        i0 = link_labels.index("Null Link")
-        if i0 != 0:
-            order.pop(i0); order = [i0] + order
-    A = A[order, :]
-    link_labels = [link_labels[i] for i in order]
-    colors = [colors[i] for i in order]
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    bottoms = np.zeros(n_k)
-    x = np.arange(n_k)
-
-    for i in range(n_links):
-        ax.bar(x, A[i], bottom=bottoms,
-               color=colors[i], edgecolor='black', linewidth=1.2,
-               label=link_labels[i])
-        bottoms += A[i]
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([str(k) for k in K_values])
-    ax.set_xlabel('K')
-    ax.set_ylabel('No. of Channels')
-
-    # Place legend nicely
-    ax.legend(loc='upper left', frameon=True)
-
-    # Tight layout + save
-    plt.tight_layout()
-    plt.savefig('outputs/source_allocation.png', dpi=300)
-    plt.close()
-
-
-def plot_link_utility_bars(rows, start_color_index=0, outfile='outputs/link_utility_bars.png'):
+def plot_link_utility_bars(rows, start_color_index=0, outfile='outputs/link_utility_bars.svg'):
     """
     rows: list of dicts from summarize_best(); each row must have:
           'link', 'link_utility', 'ub_utility'
     Bar outline (black) = max per-link utility; fill = actual utility.
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
 
     if not rows:
         return
@@ -172,124 +126,51 @@ def plot_link_utility_bars(rows, start_color_index=0, outfile='outputs/link_util
     colors = gem_colors(len(links), start=start_color_index)
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    # Max bars as hollow boxes
+    #Max bars as hollow boxes
     ax.bar(x, ub, width=w, facecolor='white', edgecolor='black', linewidth=1.5, label='Max per-link utility')
-    # Actual bars as filled overlays
-    ax.bar(x, ac, width=w*0.82, color=colors, edgecolor='black', linewidth=1.0, label='Actual utility')
+
+    #Actual bars as filled overlays (all gem blue)
+    gem_blue = '#0072BD'
+    ax.bar(x, ac, width=w*0.82, color=gem_blue, edgecolor='black', linewidth=1.0, label='Actual utility')
 
     ax.set_xticks(x)
     ax.set_xticklabels(links, rotation=30, ha='right')
     ax.set_xlabel('Link')
     ax.set_ylabel('Utility (log₁₀ units)')
     ax.legend()
+
+    #ticks: inside, all sides
+    ax.tick_params(axis='both', which='both', direction='in', top=True, right=True, length=6, width=1)
+
     plt.tight_layout()
     plt.savefig(outfile, dpi=300)
     plt.close()
 
-
-
-def utility_comparison(all_utilities, dashed_limit, outfile='outputs/utility_comparison.png'):
-    """
-    all_utilities : list[float]  (e.g., best utility from each attempt)
-    dashed_limit : float         (sum of per-link ceilings = max possible network utility)
-    """
-    import numpy as np
-    import matplotlib.pyplot as plt
+def utility_comparison(all_utilities, dashed_limit, outfile='outputs/utility_comparison.svg'):
 
     if not all_utilities:
+        print("[plot] all_utilities empty – skipping utility_comparison")
         return
+
     y = np.array(all_utilities, dtype=float)
     x = np.arange(1, len(y)+1)
 
     fig, ax = plt.subplots(figsize=(9, 5.5))
-    ax.plot(x, y, marker='o', linewidth=1.5)
-    ax.set_xlabel('Attempts')
+    ax.scatter(x, y, marker='o', linewidth=1.5, s=3, label='Path Combination')
+
+    ax.set_xlabel('Path Combination')
     ax.set_ylabel('Utility')
 
-    # Dashed line for absolute network max
     if np.isfinite(dashed_limit):
-        ax.axhline(dashed_limit, linestyle='--', linewidth=1.75, label='Max possible (network)')
+        #tiny epsilon avoids fp “overrun”
+        eps = 1e-9 * max(1.0, abs(dashed_limit))
+        ax.axhline(dashed_limit + eps, linestyle='--', linewidth=1.75,
+                   label='Max possible (network)', color='k')
 
     ax.legend(loc='best')
     plt.tight_layout()
     plt.savefig(outfile, dpi=300)
-    plt.close()
-
-#This is a plot that compares the utility between the various reruns of the optimizer
-def utility_interference(all_utilities, all_utilities_no_interference):
-    """
-    Inputs:
-    all_utilities is a list of all utilities determined through the optimizer
-    all_utilities_no_interference is a list of all utilities with the failed ones being replaced with negative infinity
-    """
-    x_range = np.arange(1,len(all_utilities)+1) #Optimizer attempt number
-    plt.figure(figsize=(10, 6))
-    plt.scatter(x_range, all_utilities, s=3)#, label = 'Points with Interference or Less Utility')
-    #plt.scatter(x_range, all_utilities_no_interference, s=3, label = 'Best Utility Values')
-    #plt.legend(loc = 'best')
-    #plt.title('Comparing Utilities of Successful and Failed Optimization Attempts')
-    plt.xlabel('Attempts')
-    plt.ylabel('Utility')
-    #plt.show()
-    plt.savefig('outputs/utility_comparison.png')
-
-#This is a plot that compares the utility between the various reruns of the optimizer, but zoomed in
-def utility_interference_zoomed(all_utilities, all_utilities_no_interference):
-    """
-    Inputs:
-    all_utilities is a list of all utilities determined through the optimizer
-    all_utilities_no_interference is a list of all utilities with the failed ones being replaced with negative infinity
-    """
-    if not all_utilities_no_interference or np.isneginf(all_utilities_no_interference).all():
-        print("[plot] No interference-free solutions – skipping zoomed plot")
-        return
-
-    x_range = np.arange(1,len(all_utilities)+1) #Optimizer attempt number
-    plt.figure(figsize=(10, 6))
-    plt.scatter(x_range, all_utilities, s=3, label = 'Points with Interference or Less Utility')
-    plt.scatter(x_range, all_utilities_no_interference, s=3, label = 'Best Utility Values')
-    plt.legend(loc = 'best')
-    plt.title('Comparing Utilities of Successful and Failed Optimization Attempts')
-    plt.xlabel('Attempts')
-    plt.xlim([0,1+np.argmax(all_utilities_no_interference)])
-    plt.ylabel('Utility')
-    #plt.show()
-    plt.savefig('outputs/utility_comparison_zoomed.png')
-
-#This is a plot that compares the utility between the various reruns of the optimizer
-def utility_vs_loss(all_utilities, all_utilities_no_interference, loss):
-    """
-    Inputs:
-    all_utilities is a list of all utilities determined through the optimizer
-    all_utilities_no_interference is a list of all utilities with the failed ones being replaced with negative infinity
-    """
-    plt.figure(figsize=(10, 6))
-    plt.scatter(loss, all_utilities, s=3, label = 'Points with Interference or Less Utility')
-    plt.scatter(loss, all_utilities_no_interference, s=3, label = 'Best Utility Values')
-    plt.legend(loc = 'best')
-    plt.title('Comparing Utilities of Successful and Failed Optimization Attempts Against Network Loss')
-    plt.xlabel('Total Network Loss')
-    plt.ylabel('Utility')
-    #plt.show()
-    plt.savefig('outputs/utility_loss_comparison.png')
-
-#This is a plot that compares the utility with the number of used sources
-def utility_vs_sources(all_utilities, all_utilities_no_interference, total_used_sources):
-    """
-    Inputs:
-    all_utilities is a list of all utilities determined through the optimizer
-    all_utilities_no_interference is a list of all utilities with the failed ones being replaced with negative infinity
-    """
-    plt.figure(figsize=(10, 6))
-    plt.scatter(total_used_sources, all_utilities, s=3, label = 'Points with Interference or Less Utility')
-    plt.scatter(total_used_sources, all_utilities_no_interference, s=3, label = 'Best Utility Values')
-    plt.legend(loc = 'best')
-    plt.title('Comparing Utilities of Successful and Failed Optimization Attempts Against Total Used Sources')
-    plt.xlabel('Total Used Sources')
-    plt.ylabel('Utility')
-    #plt.show()
-    plt.savefig('outputs/utility_source_comparison.png')
-
+    plt.close(fig)
 
 #Network plot showing nodes, edges, and link paths TODO: Add link paths
 def plot_network_final(network, previous_best_results, freqs_by_link=None):
@@ -308,11 +189,11 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
         print("[plot] No feasible solution to draw – skipping plot_network_final")
         return
     
-    # 1. Layout & base figure
+    #1. Layout & base figure
     pos = nx.spring_layout(network)
     fig, ax = plt.subplots(figsize=(12, 10))
 
-    # 2. Draw nodes by type
+    #2. Draw nodes by type
     color_map = {'source': 'lightblue', 'user': 'lightcoral'}
     node_colors = [
         color_map.get(data.get('node_type'), 'gray')
@@ -323,20 +204,20 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
                            node_size=500,
                            ax=ax)
 
-    # 3. Draw all background edges in light gray
+    #3. Draw all background edges in light gray
     nx.draw_networkx_edges(network, pos,
                            edge_color='lightgray',
                            width=1,
                            ax=ax)
 
-    # 4. Build a unique color for every link‐tuple across all results
+    #4. Build a unique color for every link‐tuple across all results
     all_links = [link for pr in previous_best_results for link in pr['links']]
     unique_links = sorted(set(all_links))
     cmap = plt.get_cmap('tab20')
     link_colors = {link: cmap(i % 20)
                    for i, link in enumerate(unique_links)}
 
-    # 5. Draw each link’s two half‐paths and collect a legend entry
+    #5. Draw each link’s two half‐paths and collect a legend entry
     legend_handles = []
     legend_labels  = []
 
@@ -349,17 +230,17 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
             u1, u2 = link
             color  = link_colors[link]
 
-            # find shortest paths user→source
+            #find shortest paths user→source
             try:
                 p1 = nx.shortest_path(network, u1, src)
                 p2 = nx.shortest_path(network, u2, src)
             except nx.NetworkXNoPath:
-                # skip if there is no path in the graph
+                #skip if there is no path in the graph
                 continue
 
             edges = list(zip(p1, p1[1:])) + list(zip(p2, p2[1:]))
 
-            # draw them
+            #draw them
             nx.draw_networkx_edges(
                 network, pos,
                 edgelist=edges,
@@ -369,25 +250,25 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
                 ax=ax
             )
 
-            # grab this link’s allocation list
+            #grab this link’s allocation list
             if j < len(ca):
                 per_alloc = ca[j]
-                # ensure it’s a simple list
+                #ensure it’s a simple list
                 if not isinstance(per_alloc, list):
                     per_alloc = [per_alloc]
             else:
                 per_alloc = []
 
-            # legend text: “U3–U4: U=0.045, alloc=[5.0]”
+            #legend text: “U3–U4: U=0.045, alloc=[5.0]”
             lbl = f"{u1}–{u2}: U={util:.3f}, alloc={per_alloc}"
 
-            # proxy artist for the legend
+            #proxy artist for the legend
             h = mlines.Line2D([], [], color=color,
                               linewidth=3, alpha=0.7)
             legend_handles.append(h)
             legend_labels.append(lbl)
 
-    # 6. Draw edge‐loss labels and node‐labels
+    #6. Draw edge‐loss labels and node‐labels
     edge_labels = {
         (u, v): f"{d['loss']:.2f}"
         for u, v, d in network.edges(data=True)
@@ -404,7 +285,7 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
     plt.title("Network Topology")
     plt.axis('off')
 
-    # 7. Legend (only if we have any handles)
+    #7. Legend (only if we have any handles)
     if legend_handles:
         ax.legend(legend_handles,
                   legend_labels,
@@ -418,35 +299,33 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
 
     _augment_legend_with_frequencies(ax, freqs_by_link)
     plt.tight_layout()
-    plt.savefig('outputs/network_plot.png', dpi=300)
+    plt.savefig('outputs/network_plot.svg', dpi=300)
     plt.close()
 
 #Bar plot to show channel allocation to each link by source.
-def source_allocation(previous_best_results, sources):
+def source_allocation(previous_best_results, sources): #TODO: Show frequency allocation instead of just how many
     """
     Stacked bars per source:
       x-axis: sources
-      y-axis: # of channels
+      y-axis: #of channels
       stacks: channels allocated per link (+ 'Unused' remainder)
-    Saves: outputs/source_allocation.png
+    Saves: outputs/source_allocation.svg
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
 
     if not previous_best_results:
         print("[plot] No feasible solution to draw – skipping source_allocation")
         return
 
-    # Collect all link labels across sources
+    #Collect all link labels across sources
     all_links = set()
     for entry in previous_best_results:
         for lk in entry.get('links', []):
             u1, u2 = lk
             all_links.add(f"Link {u1}{u2}")
     link_labels = sorted(all_links)
-    link_labels.append("Unused")  # always last
+    link_labels.append("Unused")  #always last
 
-    # Build matrix: rows = link labels (incl. Unused), cols = sources
+    #Build matrix: rows = link labels (incl. Unused), cols = sources
     src_names = [e['source'] for e in previous_best_results]
     nS, nL = len(src_names), len(link_labels)
     M = np.zeros((nL, nS), dtype=float)
@@ -461,18 +340,20 @@ def source_allocation(previous_best_results, sources):
             lbl = f"Link {lk[0]}{lk[1]}"
             try:
                 i = link_labels.index(lbl)
-                k_ch = _to_int_channels(k)  # <-- use the robust converter
+                k_ch = _to_int_channels(k)  #<-- use the robust converter
                 M[i, s_idx] += k_ch
                 used += k_ch
             except ValueError:
                 pass
-        # Unused remainder (clamped to >= 0)
+        #Unused remainder (clamped to >= 0)
         rem = max(total_k - used, 0)
         M[link_labels.index("Unused"), s_idx] = rem
 
 
-    # Plot
-    colors = gem_colors(nL)
+    #Plot
+    colors = gem_colors(nL, start=1)              #start others at orange
+    if 'Unused' in link_labels:
+        colors[link_labels.index('Unused')] = GEM[0]  #Unused = MATLAB blue
     fig, ax = plt.subplots(figsize=(8, 6))
     x = np.arange(nS)
     bottoms = np.zeros(nS)
@@ -486,16 +367,19 @@ def source_allocation(previous_best_results, sources):
     ax.set_xlabel('Source')
     ax.set_ylabel('No. of Channels')
 
-    # Put 'Unused' last in legend (already last in link_labels)
+    #Put 'Unused' FIRST in legend
     handles, labels = ax.get_legend_handles_labels()
     if 'Unused' in labels:
         idx = labels.index('Unused')
-        order = [k for k in range(len(labels)) if k != idx] + [idx]
+        order = [idx] + [k for k in range(len(labels)) if k != idx]
         handles = [handles[k] for k in order]
         labels  = [labels[k]  for k in order]
 
     ax.legend(handles, labels, loc='upper right', bbox_to_anchor=(1.15, 1))
-    plt.tight_layout()
-    plt.savefig('outputs/source_allocation.png', dpi=300)
-    plt.close()
 
+    #ticks: inside, all sides
+    ax.tick_params(axis='both', which='both', direction='in', top=True, right=True, length=6, width=1)
+
+    plt.tight_layout()
+    plt.savefig('outputs/source_allocation.svg', dpi=300)
+    plt.close()

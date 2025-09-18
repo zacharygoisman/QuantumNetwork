@@ -1,13 +1,8 @@
 import networkx as nx
-import matplotlib.pyplot as plt
-import random
-import csv
-import matplotlib.colors as mcolors
-from matplotlib.patches import Patch
 import numpy as np
-from scipy.optimize import fsolve
 import itertools
 from ortools.sat.python import cp_model
+from collections import defaultdict
 
 #double_dijkstra finds the lowest loss paths (and losses) for every source and for every link
 def double_dijkstra(network, sources, tau = 0, d1 = 0, d2 = 0):
@@ -68,7 +63,7 @@ def link_info_packaging(network, fidelity_limit, y1 = None, y2 = None):
     return network
 
 #Creates a list of every possible path from the set of optimal double dijkstra paths. It outputs this list of dictionaries which contain link information for each of the paths
-def path_combinations(network, sort_type):
+def path_combinations(network):
     """
     Inputs:
     network object containing double dijkstra information
@@ -92,7 +87,7 @@ def path_combinations(network, sort_type):
             combo_with_links.append({
                 'link': link_info[i]['link'],
                 'fidelity_limit': link_info[i]['fidelity_limit'],
-                'path': path  # full path dict preserved
+                'path': path  #full path dict preserved
             })
         results.append({
             'combo': combo_with_links,
@@ -102,12 +97,7 @@ def path_combinations(network, sort_type):
         })
         path_id += 1
 
-    #Sort
-    if sort_type == 'loss':
-        sorted_results = sorted(results, key=lambda r: (r['total_loss'], -len({p['path']['source'] for p in r['combo']}))) #Sort combinations by total loss and total number of sources
-    elif sort_type == 'hop':
-        sorted_results = sorted(results, key=lambda r: (np.mean([len(p['path']['path1'] + p['path']['path2']) - 1 for p in r['combo']]), r['total_loss'], -len({p['path']['source'] for p in r['combo']})))
-    return sorted_results
+    return results
 
 
 #choose_paths decides which paths to end up using from the total list of paths
@@ -146,12 +136,36 @@ def extract_link_ch_counts(source_dicts, ordered_links):
     Outputs:
     Returns a list of source and channel numbers associated with the specific links we input
     """
+    def _to_int_channels(k):
+        #Mirrors the safe converter used in plotting
+        try:
+            if hasattr(k, 'value'):
+                v = k.value
+                if isinstance(v, (list, tuple, np.ndarray)):
+                    if len(v) == 0:
+                        return 0
+                    return int(round(float(v[0])))
+                return int(round(float(v)))
+            if isinstance(k, (list, tuple, np.ndarray)):
+                arr = np.asarray(k, dtype=float)
+                if arr.size == 0:
+                    return 0
+                if arr.size == 1:
+                    return int(round(float(arr.item())))
+                return int(round(float(arr.sum())))
+            return int(round(float(k)))
+        except Exception:
+            try:
+                return int(round(float(np.asarray(k).item())))
+            except Exception:
+                return 0
 
     link_to_count = {}
     for src_info in source_dicts:
-        for link, alloc in zip(src_info['links'], src_info['channel_allocation']): #Extract the channel allocation values for each correctly mapped link
-            link_to_count[link] = int(alloc[0]) #Flatten channel allocation list of floats for each link
-    return [link_to_count[link] for link in ordered_links] #List of source and associated channel amounts per link in correct order
+        for link, alloc in zip(src_info['links'], src_info['channel_allocation']):
+            link_to_count[link] = _to_int_channels(alloc)
+
+    return [link_to_count[link] for link in ordered_links]
 
 
 #check_interference checks the topology of the network in order to see if frequency channels overlap. If so then it will test other channel orders for the given link paths.
@@ -165,11 +179,11 @@ def check_interference(path_choice, results, sources):
         return [tuple(sorted((path[i], path[i+1])))
                 for i in range(len(path)-1)]
 
-    # unpack link data ----------------------------------------------------
+    #unpack link data ----------------------------------------------------
     links       = path_choice['combo']
     nlinks      = len(links)
     paths_u1    = [lk['path']['path1'] for lk in links]
-    paths_u2    = [lk['path']['path2'] for lk in links]      # ← REAL 2nd path
+    paths_u2    = [lk['path']['path2'] for lk in links]      #← REAL 2nd path
     link_src    = [lk['path']['source'] for lk in links]
     link_names  = [lk['link']            for lk in links]
     k_vals      = extract_link_ch_counts(results, link_names)
@@ -180,45 +194,59 @@ def check_interference(path_choice, results, sources):
     all_ch      = sorted({c for src in link_src
                             for c in sources[src]['available_channels']})
 
-    # model ---------------------------------------------------------------
+    #model ---------------------------------------------------------------
     m = cp_model.CpModel()
     swap  = [m.NewBoolVar(f"swap_{i}") for i in range(nlinks)]
-    use   = {}              # (i,c)  channel chosen?
-    pos   = {}              # (i,e,c) channel c flows + on edge e for link i
-    neg   = {}              # (i,e,c) channel c flows - on edge e for link i
+    use   = {}              #(i,c)  channel chosen?
+    pos   = {}              #(i,e,c) channel c flows + on edge e for link i
+    neg   = {}              #(i,e,c) channel c flows - on edge e for link i
 
+    #(1) create all use[i,c] and per-link cardinalities
     for i, src in enumerate(link_src):
         pool = sources[src]['available_channels']
         for c in pool:
             use[i, c] = m.NewBoolVar(f"use_{i}_{c}")
         m.Add(sum(use[i, c] for c in pool) == k_vals[i]) #Set how many channels we can use for each link
 
-        for c in pool:  #Create positive and negative channels on both paths
+    #(2) per-source, per-channel uniqueness
+    src_to_idxs = {}
+    for i, s in enumerate(link_src):
+        src_to_idxs.setdefault(s, []).append(i)
+    for s, idxs in src_to_idxs.items():
+        pool = sources[s]['available_channels']
+        for c in pool:
+            #Each channel index at source s can be assigned to at most one link
+            m.Add(sum(use[i, c] for i in idxs) <= 1)
+
+    #(3) now create pos/neg vars and reify with swap
+    for i, src in enumerate(link_src):
+        pool = sources[src]['available_channels']
+        for c in pool:
             for e in edges_u1[i] + edges_u2[i]:
                 pos[i, e, c] = m.NewBoolVar(f"p_{i}_{e}_{c}")
                 neg[i, e, c] = m.NewBoolVar(f"n_{i}_{e}_{c}")
 
-        # reify edge usage -----------------------------------------------
-        for c in pool:
-            # U1 arm:   swap=0 → +c,  swap=1 → –c
-            for e in edges_u1[i]:
-                m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
-                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
-                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i])
-                m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
-                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
-                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
+    #reify edge usage -----------------------------------------------
+    for c in pool:
+        #U1 arm:   swap=0 → +c,  swap=1 → –c
+        for e in edges_u1[i]:
+            m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
+            m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+            m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i])
+            m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
+            m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+            m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
 
-            # U2 arm:   opposite sign mapping
-            for e in edges_u2[i]:
-                m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
-                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
-                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i])
-                m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
-                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
-                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
+        #U2 arm:   opposite sign mapping
+        for e in edges_u2[i]:
+            m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
+            m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+            m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i])
+            m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
+            m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+            m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
 
-    # edge-conflict: ≤1 pos and ≤1 neg per (edge, channel) --------------
+    #edge-conflict: ≤1 pos and ≤1 neg per (edge, channel) --------------
     for e in all_edges:
         for c in all_ch:
             pvars = [pos[i, e, c] for i in range(nlinks) if (i, e, c) in pos]
@@ -231,7 +259,7 @@ def check_interference(path_choice, results, sources):
     if solver.Solve(m) not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None
 
-    # assemble answer -----------------------------------------------------
+    #assemble answer -----------------------------------------------------
     assignment = []
     for i, src in enumerate(link_src):
         pool   = sources[src]['available_channels']
