@@ -24,9 +24,9 @@ import plot
 class Config:
     #Topology
     num_users = 15
-    num_sources = 4
+    num_sources = 3
     num_edges = 100
-    num_links = 6
+    num_links = 3
     loss_range = (2.0, 20.0)
     topology = "ring"   #'ring' | 'dense' | 'star' | 'kite' | None
     density = 0.35               #used when topology='dense'
@@ -112,7 +112,7 @@ def per_link_upper_bound(L):
                 ub_x=None, ub_path1=None, ub_path2=None)
 
     for p in L.get('paths', []):   #{'source','path1','path2','y1','y2'}
-        y1 = float(p.get('y1', 0.0)); y2 = float(p.get('y2', 0.0))
+        y1 = float(p.get('y1', 0.0)); y2 = float(p.get('y2', 0.0)) #TODO: Check why loss doesnt seem to impact result
         #No explicit one-channel cap stored in L → treat as unbounded here
         val, x, expr = per_link_ub_value(y1, y2, F_eff, x_one_channel_cap=None, on_infeasible="none")
         if val is None or not np.isfinite(val):
@@ -148,7 +148,7 @@ def per_link_ub_value(y1, y2, F_min, x_one_channel_cap, on_infeasible="zero"):
     F_eff = max(0.5, float(F_min))
 
     #2) Build quadratic for F(x) >= F_eff:
-    #   t x^2 + (tA - 3) x + tB <= 0, with t = 4*F_eff - 1  (note: with F_eff>=0.5, t >= 1)
+    #  t x^2 + (tA - 3) x + tB <= 0, with t = 4*F_eff - 1  (note: with F_eff>=0.5, t >= 1)
     t = 4.0*F_eff - 1.0  #>= 1.0 when F_eff >= 0.5
     A = 2.0*(y1 + y2) + 1.0
     B = 4.0*y1*y2
@@ -318,7 +318,7 @@ def build_network(cfg: Config):
     return net, sources
 
 def _links_per_source(combo_dict):
-    # how many links in this combo use each source?
+    #how many links in this combo use each source?
     return Counter(lk['path']['source'] for lk in combo_dict['combo'])
 
 def enumerate_and_score_combos(net, sources, cfg: Config):
@@ -344,11 +344,11 @@ def enumerate_and_score_combos(net, sources, cfg: Config):
                     pruned_reason = f"count={cnt} > cap={cap} @ source={src_id} (min 1 ch/link)"
                     break
 
-            # If still not pruned, run the reuse-aware LB (optional, keeps your old logic)
+            #If still not pruned, run the reuse-aware LB (optional, keeps your old logic)
             if pruned_reason is None:
                 graphs = _build_source_conflict_graph(c)
                 for src_id, G in graphs.items():
-                    lb  = _greedy_clique_lb(G)           # or _exact_max_clique_size(G)
+                    lb  = _greedy_clique_lb(G)           #or _exact_max_clique_size(G)
                     cap = _get_source_capacity(sources, src_id)
                     if lb > cap:
                         pruned_reason = f"clique_lb={lb} > cap={cap} @ source={src_id}"
@@ -419,14 +419,14 @@ def postprocess_and_report(cfg: Config, net, sources, best, ideal_ub, all_utilit
 
     print_link_report(rows) #Output to terminal
 
-    # ---- print totals / bounds after all link lines ----
+    #---- print totals / bounds after all link lines ----
     total_utility = float(best['utility'])
     ideal_ub_val = float(ideal_ub)
     print("\n=== Totals ===")
     print(f"Total Utility (achieved): {total_utility:.6f}")
     gap_ideal = (1.0 - total_utility / ideal_ub_val) * 100.0 if ideal_ub_val > 0 else float('nan') #Percentage difference between the best and ideal
     print(f"Ideal Upper Bound (any paths): {ideal_ub_val:.6f}  (gap: {gap_ideal:.2f}% )")
-    # ----------------------------------------------------
+    #----------------------------------------------------
 
     if cfg.report_csv:
         #CSV: per-link summary
@@ -454,39 +454,55 @@ def postprocess_and_report(cfg: Config, net, sources, best, ideal_ub, all_utilit
         plot.utility_comparison(cleaned,float(ideal_ub_now), outfile=str(cfg.out_dir / 'utility_comparison.svg'))
 
         #Stacked source allocation, bars, network plot
-        plot.source_allocation(previous_best_results=best['results'], sources=sources)
-        plot.plot_link_utility_bars(rows, outfile=str(cfg.out_dir / 'link_utility_bars.svg'))
-
         freqs_by_link = {tuple(lk['link']): best['assignment'][i] for i, lk in enumerate(best['combo']['combo'])}
+        plot.source_allocation(previous_best_results=best['results'], sources=sources, freqs_by_link=freqs_by_link)
+        plot.plot_link_utility_bars(rows, outfile=str(cfg.out_dir / 'link_utility_bars.svg'))
         plot.plot_network_final(net, best['results'], freqs_by_link=freqs_by_link)
 
 def print_link_report(rows):
-    import numpy as _np  # local alias to avoid conflicts
+    import numpy as _np  #local alias to avoid conflicts
     print("\n=== Link Report ===")
-    print("Link Name, Utility, Source Name, Number of Channels Given, Channel Frequencies, Channel Flux, Network Path taken")
+    print("Link Name, Utility, Source Name, Total Loss, Number of Channels Given, Channel Frequencies, Channel Flux, Network Path Taken")
     for r in rows:
         link_name = r["link"]
         util = r["link_utility"]
         util_str = f"{util:.6f}" if _np.isfinite(util) else "NA"
         source = r["source"]
+        total_loss = r['link_total_loss']
         k = int(r["k_channels"])
-        # Keep the sign convention from the solver: user1 list, user2 list
+        #Keep the sign convention from the solver: user1 list, user2 list
         ch_freqs = f"to_user1={r['freqs_to_user1']}, to_user2={r['freqs_to_user2']}"
         flux = r.get("total_flux_mu_k", None)
         flux_str = (f"{float(flux):.6g}"
                     if (flux is not None and _np.isfinite(float(flux)))
                     else "NA")
-        # Show both arms of the path
+        #Show both arms of the path
         path_str = f"{r['path_user1']} | {r['path_user2']}"
-        print(f"{link_name}, {util_str}, {source}, {k}, {ch_freqs}, {flux_str}, {path_str}")
-
+        print(f"{link_name}, {util_str}, {source}, {total_loss:.5f}, {k}, {ch_freqs}, {flux_str}, {path_str}")
 
 def summarize_best(net, best_combo, best_res, best_assignment):
     tau = net.graph.get('tau', None)
     src_map = {e['source']: e for e in best_res}
 
+    #how many channels each link actually got (aligned with best_combo['combo'] order)
     link_names = [lk['link'] for lk in best_combo['combo']]
     k_counts   = routing.extract_link_ch_counts(best_res, link_names)
+
+    def _sum_edge_loss(path):
+        #robust fallback if we can't find a matching path record
+        try:
+            return sum(net[u][v].get('loss', 1.0) for u, v in zip(path, path[1:]))
+        except Exception:
+            return float('nan')
+
+    def _match_path_record(Lrec, src, p1, p2):
+        if not Lrec:
+            return None
+        for pr in Lrec.get('paths', []):
+            #exact match on source and the two arms
+            if pr.get('source') == src and pr.get('path1') == p1 and pr.get('path2') == p2:
+                return pr
+        return None
 
     rows = []
     for i, lk in enumerate(best_combo['combo']):
@@ -497,20 +513,33 @@ def summarize_best(net, best_combo, best_res, best_assignment):
         p2    = lk['path']['path2']
 
         entry = src_map[src]
+        #index of this link within this source's result entry
         j = entry['links'].index(link) if link in entry['links'] else entry['links'].index(tuple(link))
 
         pre = entry['prelog_rates'][j]
-        per_link_utility = _log10_safe(pre)
+        per_link_utility = _log10_safe(pre)  #uses your existing helper
 
-        k_i = int(k_counts[i])
-        to_u1, to_u2 = best_assignment[i]
+        k_i = int(k_counts[i])                      #channels chosen for this link
+        to_u1, to_u2 = best_assignment[i]           #channel lists (sign encodes orientation)
 
         mu = float(entry.get('optimal_mu', np.nan))
         total_flux = float(mu * k_i) if np.isfinite(mu) else np.nan
         x_val = float(tau * total_flux) if (tau is not None and np.isfinite(total_flux)) else None
 
+        #---- Upper bound (correct call) ----
         Lrec = _find_link_record(net, link)
-        ub = per_link_upper_bound(Lrec) if Lrec else dict(ub_utility=None, ub_source=None)
+        ub_dict = per_link_upper_bound(Lrec) if Lrec else None
+        ub_util = (float(ub_dict.get('ub_utility')) if (ub_dict and ub_dict.get('ub_utility') is not None)
+                   else None)
+
+        #---- Total loss for the *chosen* path ----
+        total_loss = float('nan')
+        pr = _match_path_record(Lrec, src, p1, p2)
+        if pr and ('user1_loss' in pr and 'user2_loss' in pr):
+            total_loss = float(pr['user1_loss']) + float(pr['user2_loss'])
+        else:
+            #fallback: sum edge losses along both arms
+            total_loss = _sum_edge_loss(p1) + _sum_edge_loss(p2)
 
         rows.append({
             "link": f"{u1}-{u2}",
@@ -524,13 +553,16 @@ def summarize_best(net, best_combo, best_res, best_assignment):
             "total_flux_mu_k": total_flux,
             "x_value_tau_mu_k": x_val,
             "link_utility": per_link_utility,
-            "ub_utility": (max(ub.get("ub_utility"), per_link_utility)
-                if (ub.get("ub_utility") is not None) else per_link_utility),
-            "ub_source": ub.get("ub_source"),
+            #if UB exists, keep the larger of UB vs achieved utility for the display
+            "ub_utility": (max(ub_util, per_link_utility) if (ub_util is not None) else per_link_utility),
+            "ub_source": (ub_dict.get("ub_source") if ub_dict else None),
+            "link_total_loss": float(total_loss),
         })
 
+    #per-source flux (still reported)
     flux_by_source = {e['source']: float(e.get('optimal_mu', np.nan)) for e in best_res}
     return rows, flux_by_source
+
 
 def diagnose_link_utilities(net, rows, best_res, verbose=True):
     vals = np.array([r["link_utility"] for r in rows], dtype=float)
