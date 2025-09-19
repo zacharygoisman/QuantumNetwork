@@ -173,10 +173,13 @@ def utility_comparison(all_utilities, dashed_limit, outfile='outputs/utility_com
     plt.close(fig)
 
 #Network plot showing nodes, edges, and link paths
+import matplotlib.patheffects as pe
+
 def plot_network_final(network, previous_best_results, freqs_by_link=None):
     """
     Draw network; legend per link:
     U1–S–U2 | total_loss | per-link utility | +[ch list] → U1
+    Also overlays per-edge *loss* values centered on each USED edge.
     """
     if previous_best_results is None:
         print("[plot] No feasible solution to draw – skipping plot_network_final")
@@ -185,48 +188,57 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
     pos = nx.spring_layout(network)
     fig, ax = plt.subplots(figsize=(12, 10))
 
-    #Nodes
+    # Nodes
     color_map = {'source': 'lightblue', 'user': 'lightcoral'}
     node_colors = [color_map.get(data.get('node_type'), 'gray')
                    for n, data in network.nodes(data=True)]
     nx.draw_networkx_nodes(network, pos, node_color=node_colors, node_size=500, ax=ax)
 
-    #Background edges
+    # Background edges
     nx.draw_networkx_edges(network, pos, edge_color='lightgray', width=1, ax=ax)
 
-    #Unique link colors (stable)
+    # Unique link colors (stable)
     all_links = [link for pr in previous_best_results for link in pr['links']]
     unique_links = sorted(set(all_links))
     cmap = plt.get_cmap('tab20')
     link_colors = {link: cmap(i % 20) for i, link in enumerate(unique_links)}
 
-    #Helper to sum loss along a path
+    # Helper to sum loss along a path
     def path_loss(path):
         return sum(network[u][v].get('loss', 1.0) for u, v in zip(path, path[1:]))
 
-    #Draw selected paths and build legend labels
+    # Collect USED edges so we label only the colored ones
+    used_edges = set()
+
+    # Draw selected paths and build legend labels
     for entry in previous_best_results:
-        sname = entry['source']
-        links = entry['links']
+        sname   = entry['source']
+        links   = entry['links']
         prelogs = entry.get('prelog_rates', [None]*len(links))
 
         for j, (u1, u2) in enumerate(links):
-            #Use dijkstra by 'loss' (this fixes earlier unweighted paths)
+            # Shortest by 'loss'
             p1 = nx.dijkstra_path(network, u1, sname, weight="loss")
             p2 = nx.dijkstra_path(network, u2, sname, weight="loss")
-            edges_in_link = list(zip(p1, p1[1:])) + list(zip(p2, p2[1:]))
+            e1 = list(zip(p1, p1[1:]))
+            e2 = list(zip(p2, p2[1:]))
 
-            #Draw the link paths
+            # Track used edges (both directions, for undirected graphs)
+            for e in e1 + e2:
+                used_edges.add(e)
+                used_edges.add((e[1], e[0]))
+
+            # Draw the link paths (colored)
             nx.draw_networkx_edges(
-                network, pos, edgelist=edges_in_link,
-                edge_color=link_colors[(u1, u2)], width=3, alpha=0.5, ax=ax
+                network, pos, edgelist=(e1 + e2),
+                edge_color=link_colors[(u1, u2)], width=3, alpha=0.6, ax=ax
             )
 
-            #Total loss & per-link utility
+            # Total loss & per-link utility
             total_loss = path_loss(p1) + path_loss(p2)
             link_util = float(np.log10(prelogs[j])) if prelogs[j] is not None else float('nan')
 
-            #Channels to first user
+            # Channels to first user (keep your existing behavior)
             ch_u1 = []
             if freqs_by_link and (u1, u2) in freqs_by_link:
                 ch_u1 = list(freqs_by_link[(u1, u2)][0])
@@ -234,12 +246,32 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
             lbl = f"{u1}–{sname}–{u2} | loss={total_loss:.4f} | U={link_util:.6f} | +{ch_u1}→{u1}"
             ax.plot([], [], color=link_colors[(u1, u2)], label=lbl)
 
+    # ---- draw loss labels on USED edges, centered & rotated, with a white halo ----
+    edge_labels = {}
+    for (u, v) in used_edges:
+        if network.has_edge(u, v):
+            loss = network[u][v].get('loss', 1.0)
+            edge_labels[(u, v)] = f"{loss:.2f}"
+
+    texts = nx.draw_networkx_edge_labels(
+        network, pos, edge_labels=edge_labels, ax=ax,
+        font_size=9, rotate=True,  # rotate to align with edge direction
+        label_pos=0.5              # center of the edge
+    )
+    # Add a white outline so text reads "inside" the colored stroke
+    for t in texts.values():
+        t.set_zorder(5)
+        t.set_path_effects([pe.withStroke(linewidth=3, foreground='white')])
+
+    # ------------------------------------------------------------------------------
+
     nx.draw_networkx_labels(network, pos, font_size=10, font_weight='bold', ax=ax)
     ax.legend(loc='best', fontsize=10)
-    ax.set_title("Network with Selected Link Paths")
+    ax.set_title("Network Topology")
     plt.tight_layout()
     plt.savefig('outputs/network_plot.svg', dpi=300)
     plt.close()
+
 
 #Bar plot to show channel allocation to each link by source.
 def source_allocation(previous_best_results, sources, freqs_by_link=None):
@@ -254,15 +286,27 @@ def source_allocation(previous_best_results, sources, freqs_by_link=None):
     """
     import numpy as np
 
-    #If we don't have precise channel assignments yet, keep the old (count) behavior.
+    #legend reorder so "Null Link" is first
+    def _legend_null_first(ax):
+        handles, labels = ax.get_legend_handles_labels()
+        if "Null Link" in labels:
+            idx = labels.index("Null Link")
+            order = [idx] + [i for i in range(len(labels)) if i != idx]
+            handles = [handles[i] for i in order]
+            labels  = [labels[i]  for i in order]
+            ax.legend(handles, labels, loc='upper right', bbox_to_anchor=(1.15, 1))
+        else:
+            ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1))
+
+    # If we don't have precise channel assignments yet, keep the old (count) behavior.
     if not freqs_by_link:
-        #---------- legacy count plot ----------
+        # ---------- legacy count plot ----------
         src_names = [entry['source'] for entry in previous_best_results]
-        #collect link labels + Unused
+        # collect link labels + Null Link
         link_labels = sorted({f"Link {lk[0]}{lk[1]}"
                               for entry in previous_best_results
                               for lk in entry.get('links', [])})
-        link_labels.append("Unused")
+        link_labels.append("Null Link")
 
         nS, nL = len(src_names), len(link_labels)
         M = np.zeros((nL, nS), dtype=float)
@@ -283,11 +327,13 @@ def source_allocation(previous_best_results, sources, freqs_by_link=None):
                 except ValueError:
                     pass
             rem = max(total_k - used, 0)
-            M[link_labels.index("Unused"), s_idx] = rem
+            M[link_labels.index("Null Link"), s_idx] = rem
 
+        # colors: keep "Null Link" as MATLAB blue; others cycle
         colors = gem_colors(nL, start=1)
-        if 'Unused' in link_labels:
-            colors[link_labels.index('Unused')] = GEM[0]
+        if 'Null Link' in link_labels:
+            colors[link_labels.index('Null Link')] = GEM[0]
+
         fig, ax = plt.subplots(figsize=(8, 6))
         x = np.arange(nS)
         bottoms = np.zeros(nS)
@@ -301,13 +347,8 @@ def source_allocation(previous_best_results, sources, freqs_by_link=None):
         ax.set_xlabel('Source')
         ax.set_ylabel('No. of Channels')
 
-        handles, labels = ax.get_legend_handles_labels()
-        if 'Unused' in labels:
-            idx = labels.index('Unused')
-            order = [idx] + [k for k in range(len(labels)) if k != idx]
-            handles = [handles[k] for k in order]
-            labels  = [labels[k]  for k in order]
-        ax.legend(handles, labels, loc='upper right', bbox_to_anchor=(1.15, 1))
+        # Legend with "Null Link" first
+        _legend_null_first(ax)
 
         ax.tick_params(axis='both', which='both', direction='in', top=True, right=True, length=6, width=1)
         plt.tight_layout()
@@ -315,7 +356,8 @@ def source_allocation(previous_best_results, sources, freqs_by_link=None):
         plt.close()
         return
 
-    #Build a mapping from link -> source it’s assigned to (use previous_best_results)
+    # ---------- new per-channel index plot ----------
+    # Build a mapping from link -> source it’s assigned to (use previous_best_results)
     link_to_source = {}
     for entry in previous_best_results:
         src = entry['source']
@@ -325,48 +367,59 @@ def source_allocation(previous_best_results, sources, freqs_by_link=None):
     src_names = [entry['source'] for entry in previous_best_results]
     unique_links = sorted({tuple(lk) for entry in previous_best_results for lk in entry.get('links', [])})
     link_labels = [f"Link {u}{v}" for (u, v) in unique_links]
-    #Add Unused category
-    link_labels.append("Unused")
+    # Add Null Link category
+    link_labels.append("Null Link")
 
-    #Color map: keep "Unused" as MATLAB blue; others cycle
+    # Color map: keep "Null Link" as MATLAB blue; others cycle
     colors = {lab: col for lab, col in zip(link_labels, gem_colors(len(link_labels), start=1))}
-    colors["Unused"] = GEM[0]
+    colors["Null Link"] = GEM[0]
 
     fig, ax = plt.subplots(figsize=(9, 6))
     x = np.arange(len(src_names))
 
-    #For legend: show each label only once
+    # For legend: show each label only once
     legend_added = set()
 
     for s_idx, sname in enumerate(src_names):
         K = len(sources[sname]['available_channels'])
-        #occupant per level (1..K) for this source
-        level_owner = ["Unused"] * K
+        # occupant per level (1..K) for this source
+        level_owner = ["Null Link"] * K
 
-        #Fill in occupied levels from channel assignments
+        # Fill in occupied levels from channel assignments
         for (u1, u2), (to_u1, to_u2) in freqs_by_link.items():
             if link_to_source.get((u1, u2)) != sname:
                 continue
-            #whichever list is positive for this link, levels are abs(c)
+            # whichever list is positive for this link, levels are abs(c)
             used_levels = sorted({abs(c) for c in list(to_u1) + list(to_u2)})
             for cidx in used_levels:
                 if 1 <= cidx <= K:
                     level_owner[cidx - 1] = f"Link {u1}{u2}"
 
-        #Draw one bar per channel index (height=1) so vertical position = index
+        # Draw one bar per channel index (height=1) so vertical position = index
         for level, owner in enumerate(level_owner, start=1):
             label = (owner if owner not in legend_added else "_nolegend_")
             ax.bar(x[s_idx], 1.0, bottom=level - 1,
                    color=colors[owner], edgecolor='black', linewidth=1.2, label=label)
             legend_added.add(owner)
 
+        # If this source is entirely null, annotate so it "shows as such"
+        if set(level_owner) == {"Null Link"} and K > 0:
+            ax.text(x[s_idx], K + 0.1, "(all null)", ha='center', va='bottom',
+                    fontsize=9, color='black')
+
     ax.set_xticks(x)
     ax.set_xticklabels(src_names, rotation=15, ha='right')
     ax.set_xlabel('Source')
     ax.set_ylabel('Channel index (1 = lowest)')
-    ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1))
+
+    # Build legend and reorder to start with "Null Link"
+    # (In case no "Null Link" bars were drawn yet, ensure it appears:)
+    if "Null Link" not in legend_added:
+        ax.plot([], [], color=colors["Null Link"], label="Null Link")
+    _legend_null_first(ax)
 
     ax.tick_params(axis='both', which='both', direction='in', top=True, right=True, length=6, width=1)
     plt.tight_layout()
     plt.savefig('outputs/source_allocation.svg', dpi=300)
     plt.close()
+

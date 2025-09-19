@@ -11,8 +11,26 @@ import math
 import string
 import os
 import contextlib
+import time
 
-import allocate_channels
+def _k_int_from_vars(k_vars, K):
+    """Round/clip integer k and repair sum(k) <= K (no equation changes)."""
+    raw = [kv.value[0] for kv in k_vars]
+    k_int = [int(round(v)) for v in raw]
+    k_int = [min(max(1, k), int(K)) for k in k_int]  # per-link bounds [1, K]
+
+    total = sum(k_int)
+    if total > K and len(k_int) > 1:
+        # Prefer decrementing those rounded up the most
+        round_up_amt = [k_int[i] - raw[i] for i in range(len(k_int))]
+        while total > K:
+            candidates = [(i, round_up_amt[i]) for i in range(len(k_int)) if k_int[i] > 1]
+            if not candidates:
+                break
+            i_star = max(candidates, key=lambda t: t[1])[0]
+            k_int[i_star] -= 1
+            total -= 1
+    return k_int
 
 def compute_fidelity_rate(tau, mu, y1_val, y2_val):
     """
@@ -31,7 +49,7 @@ def compute_fidelity_rate(tau, mu, y1_val, y2_val):
     def fidelity(x):
          return 0.25*(1 + 3*x/expr(x))
     def rate(x):
-         # Using math.log2 for base-2 logarithm.
+         #Using math.log2 for base-2 logarithm.
          return expr(x) * np.log2(2*fidelity(x))
     return fidelity(x), rate(x), x
 
@@ -51,116 +69,171 @@ def compute_R_max_full(y1_val, y2_val):
     def F(x):
          return 0.25*(1 + 3*x/expr(x))
     def rate(x):
-         # Using math.log2 for base-2 logarithm.
+         #Using math.log2 for base-2 logarithm.
          return expr(x) * math.log2(2*F(x))
-    # Sample x from a small positive value to a reasonable upper bound.
-    xs = [i/10000 for i in range(1, 100000)]  # x from 0.0001 to 10
+    #Sample x from a small positive value to a reasonable upper bound.
+    xs = [i/10000 for i in range(1, 100000)]  #x from 0.0001 to 10
     rates = [rate(x) for x in xs]
-    # The maximum possible rate (remember: with F<1, these rates are negative,
-    # and the maximum is the one closest to zero)
+    #The maximum possible rate (remember: with F<1, these rates are negative,
+    #and the maximum is the one closest to zero)
     max_rate = max(rates)
     return max_rate
 
 def matt_comparison_gecko(K, fidelity_limit, y1, y2, initial):
     N_links = len(y1)
     
-    # --------------------------------------------------------
-    # 1) Precompute the maximum possible rate for each link.
-    # For link i, compute:
-    #   R_max = max_{x>=0} { Rate(x) }
-    # where Rate(x) = expr(x) * log2(F(x)) and
-    #   expr(x) = x^2 + (2*(y1+y2)+1)*x + 4*y1*y2,
-    #   F(x) = 0.25*(1 + 3*x/expr(x)).
-    # --------------------------------------------------------
+    #--------------------------------------------------------
+    #1) Precompute the maximum possible rate for each link.
+    #For link i, compute:
+    #  R_max = max_{x>=0} { Rate(x) }
+    #where Rate(x) = expr(x) * log2(F(x)) and
+    #  expr(x) = x^2 + (2*(y1+y2)+1)*x + 4*y1*y2,
+    #  F(x) = 0.25*(1 + 3*x/expr(x)).
+    #--------------------------------------------------------
     R_max_list = []
     for i in range(N_links):
         R_max = compute_R_max_full(y1[i], y2[i])
-        # If by chance R_max is zero, clamp to a small negative number (rates are negative).
+        #If by chance R_max is zero, clamp to a small negative number (rates are negative).
         if R_max == 0:
             R_max = -1e-6
         R_max_list.append(R_max)
         #print(R_max)
     
-    # --------------------------------------------------------
-    # 2) Build the GEKKO model.
-    # --------------------------------------------------------
+    #--------------------------------------------------------
+    #2) Build the GEKKO model.
+    #--------------------------------------------------------
     m = GEKKO(remote=False)
-    m.options.IMODE = 3   # steady-state optimization
-    m.options.SOLVER = 1  # use APOPT (supports MINLP)
+    m.options.IMODE = 3   #steady-state optimization
+    m.options.SOLVER = 1  #use APOPT (supports MINLP)
     m.solver_options = [
     'minlp_maximum_iterations 1000',
     'minlp_gap 0.0001',
     'minlp_branch_method 2',
     'nlp_maximum_iterations 2000'
 ]
-    # Decision variable: mu (continuous, positive)
+    #Decision variable: mu (continuous, positive)
     mu = m.Var(value=0.001, lb=1e-9)
     
-    # Decision variables: k_i (integer channels, at least 1, up to K)
+    #Decision variables: k_i (integer channels, at least 1, up to K)
     k_vars = [m.Var(value=K//N_links, integer=True, lb=1, ub=K) for _ in range(N_links)]
     
-    # Total channels allocated must not exceed K
+    #Total channels allocated must not exceed K
     m.Equation(sum(k_vars) <= K)
     
-    # Fidelity constraints for each link:
-    # For each link, we define:
-    #   x = mu * k_i,
-    #   expr = x^2 + (2*(y1+y2)+1)*x + 4*y1*y2,
-    #   F = 0.25*(1 + 3*x/expr),
-    # and we enforce F >= fidelity_limit.
+    #Fidelity constraints for each link:
+    #For each link, we define:
+    #  x = mu * k_i,
+    #  expr = x^2 + (2*(y1+y2)+1)*x + 4*y1*y2,
+    #  F = 0.25*(1 + 3*x/expr),
+    #and we enforce F >= fidelity_limit.
     for i in range(N_links):
         x = mu * k_vars[i]
         expr_i = x**2 + (2*(y1[i]+y2[i]) + 1)*x + 4*y1[i]*y2[i]
         F = 0.25*(1 + 3*x/expr_i)
         m.Equation(F >= fidelity_limit[i])
     
-    # --------------------------------------------------------
-    # 3) Define the objective.
-    # For each link, compute the instantaneous rate:
-    #   Rate = expr * log2(F)
-    # and then the normalized rate is defined as:
-    #   Normalized Rate = R_max / Rate.
-    # (Because rates are negative, the best (least negative) rate equals R_max,
-    # giving a normalized value of 1; worse rates yield a ratio below 1.)
-    # We maximize the sum of normalized rates by minimizing its negative.
-    # --------------------------------------------------------
+    #--------------------------------------------------------
+    #3) Define the objective.
+    #For each link, compute the instantaneous rate:
+    #  Rate = expr * log2(F)
+    #and then the normalized rate is defined as:
+    #  Normalized Rate = R_max / Rate.
+    #(Because rates are negative, the best (least negative) rate equals R_max,
+    #giving a normalized value of 1; worse rates yield a ratio below 1.)
+    #We maximize the sum of normalized rates by minimizing its negative.
+    #--------------------------------------------------------
     obj = 0
     for i in range(N_links):
         x = mu * k_vars[i]
         expr_i = x**2 + (2*(y1[i]+y2[i]) + 1)*x + 4*y1[i]*y2[i]
         F = 0.25*(1 + 3*x/expr_i)
         rate_expr = expr_i * (m.log(2*F)/math.log(2))
-        # Normalized rate: using the precomputed R_max_list[i]
+        #Normalized rate: using the precomputed R_max_list[i]
         normalized_rate = rate_expr / R_max_list[i]
         obj += normalized_rate
     m.Obj(-obj)
     
-    # --------------------------------------------------------
-    # 4) Solve the MINLP.
-    # --------------------------------------------------------
+    #--------------------------------------------------------
+    #4) Solve the MINLP.
+    #--------------------------------------------------------
     with open(os.devnull, 'w') as devnull:
         with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
             m.solve(disp=False)
-    
-    # Output the solution:
-    # print("Optimal mu =", mu.value[0])
-    # print("Optimal channel allocation (k_i):")
-    # for i in range(N_links):
-    #     print(f" Link {i+1}: k = {int(round(k_vars[i].value[0]))}")
-    
-    # For reference, compute the final normalized objective value:
+
+    #--------------------------------------------------------
+    #5) Floating-point fixes (mirror allocate_channels.matt)
+    #   - Round/clip integer channels
+    #   - Repair sum(k) <= K
+    #   - Recompute μ* from the UPPER root of fidelity equalities
+    #   - Recompute objective & per-link normalized rates with (μ*, k_int)
+    #--------------------------------------------------------
+
+    #5a) Round & clip channels
+    raw_k = [kv.value[0] for kv in k_vars]
+    k_int = [int(round(v)) for v in raw_k]
+    k_int = [min(max(1, k), int(K)) for k in k_int]  #per-link ub=K here (compare.py’s bounds)
+
+    #5b) Cheap repair to enforce sum(k) <= K after rounding
+    if N_links > 1:
+        total = sum(k_int)
+        if total > K:
+            #Prefer decrementing those rounded up the most
+            round_up_amt = [k_int[i] - raw_k[i] for i in range(N_links)]
+            while total > K:
+                candidates = [(i, round_up_amt[i]) for i in range(N_links) if k_int[i] > 1]
+                if not candidates:
+                    break
+                i_star = max(candidates, key=lambda t: t[1])[0]
+                k_int[i_star] -= 1
+                total -= 1
+
+    #5c) Closed-form μ* from fidelity equalities (use the UPPER root; take min across links)
+    #    For each link i: F_i = fidelity_limit[i], s = y1[i]+y2[i], p = y1[i]*y2[i]
+    #    With x = μ k_i, the fidelity equality leads to a quadratic in μ:
+    #      t = 4F_i - 1
+    #      A = t k_i^2
+    #      B = t k_i (2s + 1) - 3 k_i
+    #      C = 4 t p
+    #      μ = (-B ± sqrt(B^2 - 4AC)) / (2A)
+    #    We take the UPPER root and then μ* = min_i μ_i^upper (to satisfy all links).
+    def _mu_upper_for_link(i, k_i):
+        F = float(fidelity_limit[i])
+        s = float(y1[i] + y2[i])
+        p = float(y1[i] * y2[i])
+        t = 4.0 * F - 1.0
+        #Guard against degenerate t (should be >0 if F>0.25)
+        if t <= 0.0 or k_i <= 0:
+            return max(float(mu.value[0]), 1e-9)
+        A = t * (k_i ** 2)
+        B = t * k_i * (2.0 * s + 1.0) - 3.0 * k_i
+        C = 4.0 * t * p
+        D = B * B - 4.0 * A * C
+        if D <= 0.0:
+            return max(float(mu.value[0]), 1e-9)
+        sqrtD = math.sqrt(D)
+        mu_hi = (-B + sqrtD) / (2.0 * A)
+        return max(mu_hi, 1e-9)
+
+    mu_star = min(_mu_upper_for_link(i, k_int[i]) for i in range(N_links)) if N_links > 0 else float(mu.value[0])
+
+    #Make downstream code that reads mu.value[0] pick up μ* (type stays like a GEKKO Var)
+    try:
+        mu.value = [float(mu_star)]
+    except Exception:
+        pass  #harmless if GEKKO blocks assignment; callers still get objective/prelogs recomputed with mu_star
+
+    #5d) Recompute objective & per-link normalized rates with (μ*, k_int)
     prelog_rates = []
-    objective_value = 0
+    objective_value = 0.0
     for i in range(N_links):
-        x_val = mu.value[0] * k_vars[i].value[0]
-        expr_val = x_val**2 + (2*(y1[i]+y2[i]) + 1)*x_val + 4*y1[i]*y2[i]
-        F_val = 0.25*(1 + 3*x_val/expr_val)
-        rate_val = expr_val * (math.log(2*F_val)/math.log(2))
+        x_val = float(mu_star) * float(k_int[i])
+        expr_val = x_val**2 + (2.0 * (y1[i] + y2[i]) + 1.0) * x_val + 4.0 * y1[i] * y2[i]
+        F_val = 0.25 * (1.0 + 3.0 * x_val / expr_val)
+        rate_val = expr_val * (math.log(2.0 * F_val) / math.log(2.0))
         normalized_rate_val = rate_val / R_max_list[i]
-        # print(i,': ',normalized_rate_val)
         objective_value += normalized_rate_val
         prelog_rates.append(normalized_rate_val)
-    
+
     return k_vars, objective_value, mu, prelog_rates
 
 #Fidelity and rate plot
@@ -171,7 +244,6 @@ def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determine
 
     l = len(y1_array)
 
-    # --- layout rules (unchanged) ---
     if l == 5:
         rows, cols = 3, 2
         legend_mode = 'panel'
@@ -204,7 +276,7 @@ def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determine
     elif cols == 1:
         axs = axs[:, None]
 
-    # Colors
+    #Colors
     matlab_blue  = '#0072BD'
     matlab_orang = '#D95319'
 
@@ -219,14 +291,14 @@ def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determine
 
     floored_ratio_array = []
     for i in range(len(k_list)):
-        arr = np.concatenate(k_vars_array[i])   # length may be 11 for K=12/24
+        arr = np.concatenate(k_vars_array[i])   #length may be 11 for K=12/24
         if len(arr) < l:
             arr = np.pad(arr, (0, l - len(arr)), mode='constant', constant_values=0.0)
         elif len(arr) > l:
             arr = arr[:l]
         floored_ratio_array.append(arr)
 
-    base_markers = ['o', '^', 's', 'd', 'x', 'v', 'P', '*']  # circle, triangle, square, diamond, ...
+    base_markers = ['o', '^', 's', 'd', 'x', 'v', 'P', '*']  #circle, triangle, square, diamond, ...
     def pick_marker(i): return base_markers[i % len(base_markers)]
 
     letters = string.ascii_uppercase
@@ -260,7 +332,7 @@ def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determine
                                 'Fidelity Threshold',
                                 'Max Allowed Flux'])
 
-        # Plot GA markers ONLY if allocation > 0 for that link and K
+        #Plot GA markers ONLY if allocation > 0 for that link and K
         for ki in range(len(k_list)):
             alloc = floored_ratio_array[ki][link_idx]
             if alloc <= 0:
@@ -299,7 +371,7 @@ def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determine
                 transform=ax.transAxes, ha='right', va='bottom',
                 fontsize=12, fontweight='bold')
 
-    # Legends
+    #Legends
     if legend_mode == 'panel':
         r, c = divmod(legend_tile_index, cols)
         ax_leg = axs[r, c]
@@ -323,43 +395,43 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
     channel_str = [str(c) for c in channel_numbers]
     n_bars = len(channel_numbers)
 
-    # MATLAB R2014b "gem" palette (cycled to cover any count)
+    #MATLAB R2014b "gem" palette (cycled to cover any count)
     gem = ['#0072BD', '#D95319', '#EDB120', '#7E2F8E',
            '#77AC30', '#4DBEEE', '#A2142F', '#003BFF', '#017501', 
-           '#FF0000', '#B526FF', '#FF00FF', '#000000']  # 13 colors
+           '#FF0000', '#B526FF', '#FF00FF', '#000000']  #13 colors
 
     def cycle_from(idx, n):
         return [gem[(idx + i) % len(gem)] for i in range(n)]
     
-    # Legend labels (extend if you ever have more)
+    #Legend labels (extend if you ever have more)
     labels = ['Link AB','Link CD','Link EF','Link GH','Link IJ',
               'Link KL','Link MN','Link OP','Link QR','Link ST',
               'Link UV','Link WX','Link YZ']
 
-    # ---- Convert ragged GEKKO outputs to a dense numeric matrix [n_bars x L] ----
+    #---- Convert ragged GEKKO outputs to a dense numeric matrix [n_bars x L] ----
     numeric_rows = []
     max_links = 0
-    for kv in k_vars_array:  # kv is a list of GEKKO Vars for one K
+    for kv in k_vars_array:  #kv is a list of GEKKO Vars for one K
         row = [int(round(v.value[0])) for v in kv]
         numeric_rows.append(row)
         if len(row) > max_links:
             max_links = len(row)
 
-    # Pad rows with zeros on the right to length max_links
+    #Pad rows with zeros on the right to length max_links
     alloc_matrix = np.zeros((n_bars, max_links), dtype=float)
     for r, row in enumerate(numeric_rows):
         alloc_matrix[r, :len(row)] = row
 
-    # ---- Plot ----
+    #---- Plot ----
     fig, ax = plt.subplots(figsize=(6, 4.5))
 
-    # Grid and ticks
+    #Grid and ticks
     ax.grid(True, axis='y', linestyle='--', linewidth=0.6, color='0.85')
     ax.set_axisbelow(True)
     ax.tick_params(axis='both', labelsize=18, direction='in', length=4, width=1.0)
     ax.tick_params(top=True, right=True, which='both', direction='in')
 
-    # Null Link (residual capacity) – uses gem[0] (blue)
+    #Null Link (residual capacity) – uses gem[0] (blue)
     total_per_bar = alloc_matrix.sum(axis=1)
     null_link = np.clip(np.asarray(channel_numbers) - total_per_bar, 0, None)
     bottom = np.zeros(n_bars, dtype=float)
@@ -367,7 +439,7 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
            color=gem[0], edgecolor='black', linewidth=0.7, label='Null Link')
     bottom += null_link
 
-    # Link stacks – start palette at gem[1] (orange), cycle as needed
+    #Link stacks – start palette at gem[1] (orange), cycle as needed
     link_colors = cycle_from(1, max_links)
     for i in range(max_links):
         heights = alloc_matrix[:, i]
@@ -376,7 +448,7 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
                label=labels[i] if i < len(labels) else f'Link {i+1}')
         bottom += heights
 
-    # Labels & legend
+    #Labels & legend
     ax.set_ylabel('No. of Channels', fontsize=18)
     ax.set_xlabel('K', fontsize=18)
 
@@ -392,7 +464,7 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
 
 def rate_bar_plot(channel_numbers, k_vars_array, objective_value,
                   mu_determined, tau, y1_array, y2_array, fidelity_limit, text):
-    # case → y-limits
+    #case → y-limits
     case_num = str(text)[-1]
     ylimit_map = {
         '1': [4.9, 5.001],
@@ -402,22 +474,22 @@ def rate_bar_plot(channel_numbers, k_vars_array, objective_value,
     }
     ylimit = ylimit_map.get(case_num, None)
 
-    matlab_blue = '#0072BD'  # MATLAB default blue
+    matlab_blue = '#0072BD'  #MATLAB default blue
 
     fig, ax = plt.subplots(figsize=(6, 4.5))
 
-    # remove title / x label; keep y label
+    #remove title / x label; keep y label
     ax.set_title('')
     ax.set_xlabel('')
     ax.set_ylabel('Fitness', fontsize=18)
 
-    # bars: MATLAB blue, thin black border
+    #bars: MATLAB blue, thin black border
     channel_str = [str(c) for c in channel_numbers]
     ax.bar(channel_str, objective_value,
            color=matlab_blue, edgecolor='black', linewidth=0.8)
     #print(objective_value)
 
-    # compute “best possible” horizontal line
+    #compute “best possible” horizontal line
     max_total_fitness = 0.0
     for (y1, y2, f_th) in zip(y1_array, y2_array, fidelity_limit):
         A = 2*(y1 + y2) + 1
@@ -436,11 +508,11 @@ def rate_bar_plot(channel_numbers, k_vars_array, objective_value,
 
     ax.axhline(max_total_fitness, color='k', linestyle='--', label='Max Total Fitness')
 
-    # ticks: inside and on all four sides; hide x numbers; enlarge y numbers
+    #ticks: inside and on all four sides; hide x numbers; enlarge y numbers
     ax.minorticks_on()
     ax.tick_params(axis='both', which='both', direction='in', top=True, right=True)
-    ax.tick_params(axis='x', which='both', labelbottom=False)  # hide x tick labels
-    ax.tick_params(axis='y', labelsize=18)                     # bigger y numbers
+    ax.tick_params(axis='x', which='both', labelbottom=False)  #hide x tick labels
+    ax.tick_params(axis='y', labelsize=18)                     #bigger y numbers
     ax.xaxis.set_ticks_position('both')
     ax.yaxis.set_ticks_position('both')
     ax.spines['top'].set_visible(True)
@@ -471,18 +543,50 @@ def run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial = 0.001, skip =
     rate_array = []
     mu_array = []
     objective_array = []
+
+    print(f"\n=== {text} ===")
+    case_t0 = time.perf_counter()
+    perK_times = []
+
     for k in k_list:
+        t0 = time.perf_counter()
         if skip:
-            if k in [12, 24]: #Remove last link for case 4 on the first two like in the paper #TODO update this with latest APOPT
-                k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit[:-1], y1[:-1], y2[:-1], initial)
+            if k in [12, 24]:  #paper behavior for Case 4
+                k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(
+                    k, fidelity_limit[:-1], y1[:-1], y2[:-1], initial
+                )
             else:
-                k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit, y1, y2, initial)
+                k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(
+                    k, fidelity_limit, y1, y2, initial
+                )
         else:
-            k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(k, fidelity_limit, y1, y2, initial)
+            k_vars, objective_value, mu, prelog_rates = matt_comparison_gecko(
+                k, fidelity_limit, y1, y2, initial
+            )
+        dt = time.perf_counter() - t0
+        perK_times.append(dt)
+
+        #Flux summary with rounded/feasible k
+        k_int = _k_int_from_vars(k_vars, k)
+        mu_val = float(mu.value[0]) if hasattr(mu, "value") and mu.value else float(mu)
+        per_link_flux = [mu_val * ki for ki in k_int]
+        total_flux = sum(per_link_flux)
+
         k_vars_array.append(k_vars)
         rate_array.append(prelog_rates)
         mu_array.append(mu.value[0])
         objective_array.append(objective_value)
+
+        # Pretty print per K
+        print(
+            f"{text} | K={int(k):>3} | fitness={objective_value:.6f} | "
+            f"mu={mu_val:.6g} | total_flux=∑(μ·k)={total_flux:.6g} | "
+            f"per_link_flux={per_link_flux} | time={dt*1000:.1f} ms"
+        )
+
+    case_dt = time.perf_counter() - case_t0
+    print(f"{text} | total_time={case_dt:.3f}s (per-K avg={np.mean(perK_times)*1000:.1f} ms)")
+
     fidelity_rate_plot(k_list, k_vars_array, rate_array, mu_array, tau, y1, y2, fidelity_limit, text)
     channel_bar_plot(k_list, k_vars_array, text)
     rate_bar_plot(k_list, k_vars_array, objective_array, mu_array, tau, y1, y2, fidelity_limit, text)

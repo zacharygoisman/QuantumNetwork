@@ -7,7 +7,7 @@ import random
 import numpy as np
 
 #create_network allows one to make an arbitrary network given user inputs. This also contains the various topology presets.
-def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_per_source=[None], topology=None, density = 0.5):
+def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_per_source=[None], topology=None, density = 0.5, kite_loss_values=None):
     '''
     Inputs:
     num_usr, num_src, num_edg are for setting the number of a particular item in the network
@@ -39,6 +39,41 @@ def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_pe
         print(f"Too few edges specified. Setting number of edges to minimum possible: {min_edges}")
         num_edg = min_edges
 
+    # --- helper: add edges so graph is connected, then fill up to target_edges ---
+    def _make_connected_then_fill(network, all_nodes, target_edges):
+        # (1) connected backbone via random spanning tree
+        order = all_nodes[:]  # copy
+        random.shuffle(order)
+        tree_edges = [(order[i-1], order[i]) for i in range(1, len(order))]
+        network.add_edges_from(tree_edges)
+
+        # (2) add extra random edges until target_edges
+        max_edges = len(all_nodes) * (len(all_nodes) - 1) // 2
+        target_edges = max(len(all_nodes) - 1, min(target_edges, max_edges))
+
+        # pool of remaining possible edges
+        existing = set(tuple(sorted(e)) for e in network.edges())
+        possible_edges = [(u, v) for i, u in enumerate(all_nodes) for v in all_nodes[i+1:]]
+        random.shuffle(possible_edges)
+        needed = target_edges - (len(all_nodes) - 1)
+        for (u, v) in possible_edges:
+            if needed <= 0:
+                break
+            key = (u, v) if u < v else (v, u)
+            if key in existing:
+                continue
+            network.add_edge(u, v)
+            existing.add(key)
+            needed -= 1
+
+        # (3) safety net: if somehow not connected, stitch components together
+        if not nx.is_connected(network):
+            comps = [list(c) for c in nx.connected_components(network)]
+            base = comps[0]
+            for comp in comps[1:]:
+                network.add_edge(random.choice(base), random.choice(comp))
+                base += comp  # merge for next iteration
+
     #Topology presets:
     if topology == 'star': #One source in the middle with users surrounding
         node_src = [f"S0"]  #Only one central source
@@ -51,6 +86,10 @@ def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_pe
     elif topology == 'dense': #Connects nodes based on edge density value
         network.add_nodes_from(node_src, node_type='source')
         network.add_nodes_from(node_usr, node_type='user')
+
+        # number of edges implied by density, but never below the spanning-tree minimum
+        target_edges = max(len(all_nodes) - 1, int(round(max_edges * density)))
+        _make_connected_then_fill(network, all_nodes, target_edges)
 
         #Edge selection
         possible_edges = [(u, v) for idx, u in enumerate(all_nodes) for v in all_nodes[idx + 1:]] #Generate all possible edges
@@ -75,21 +114,49 @@ def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_pe
             central_src = random.choice(node_src)  #Randomly select a source from the ring
             network.add_edge(node, central_src)  #Connect to a source in the ring
 
-    elif topology == 'kite': #Kite Topology: 3 users and 2 sources #TODO influence loss values of kite edges
-        node_src = [f"Alice_S",f"Bob_S"]
-        node_usr = [f"Alice",f"Bob",f"Charlie"]
+    elif topology == 'kite': #Kite Topology: 3 users and 2 sources
+        node_src = [f"Alice_S", f"Bob_S"]
+        node_usr = [f"Alice", f"Bob", f"Charlie"]
         network.add_nodes_from(node_src, node_type='source')
         network.add_nodes_from(node_usr, node_type='user')
-        #Add edges between specific nodes
-        network.add_edge(node_usr[0], node_src[0])
-        network.add_edge(node_usr[1], node_src[0])
-        network.add_edge(node_usr[0], node_src[1])
-        network.add_edge(node_usr[1], node_src[1])
-        network.add_edge(node_usr[2], node_src[1])
 
-    else: #Arbitrary topology that randomly chooses the edges TODO:Possibility for nodes to not be connected
+        # Add the fixed edge pattern
+        edges = [
+            (node_usr[0], node_src[0]),  # Alice - Alice_S
+            (node_usr[1], node_src[0]),  # Bob   - Alice_S
+            (node_usr[0], node_src[1]),  # Alice - Bob_S
+            (node_usr[1], node_src[1]),  # Bob   - Bob_S
+            (node_usr[2], node_src[1]),  # Charlie - Bob_S
+        ]
+        network.add_edges_from(edges)
+
+        #You can override these by passing kite_loss_values= {...} when calling create_network().
+        default_kite_losses = {
+            (node_usr[0], node_src[0]): 12.0,  # Alice - Alice_S
+            (node_usr[1], node_src[0]): 18.0,  # Bob   - Alice_S
+            (node_usr[0], node_src[1]): 15.0,  # Alice - Bob_S
+            (node_usr[1], node_src[1]): 10.0,  # Bob   - Bob_S
+            (node_usr[2], node_src[1]): 20.0,  # Charlie - Bob_S
+        }
+        preset = kite_loss_values or default_kite_losses
+
+        # Assign the preset losses
+        for (u, v) in edges:
+            # allow either direction in the dict
+            if (u, v) in preset:
+                network[u][v]['loss'] = float(preset[(u, v)])
+            elif (v, u) in preset:
+                network[u][v]['loss'] = float(preset[(v, u)])
+            else:
+                # if a specific edge wasn't given, fall back to a reasonable default
+                network[u][v]['loss'] = float(np.mean(list(preset.values())))
+
+    else: #Arbitrary topology that randomly chooses the edges
         network.add_nodes_from(node_src, node_type='source')
         network.add_nodes_from(node_usr, node_type='user')
+
+        # ensure at least a connected graph with exactly num_edg edges
+        _make_connected_then_fill(network, all_nodes, num_edg)
 
         #Edge selection
         possible_edges = [(u, v) for idx, u in enumerate(all_nodes) for v in all_nodes[idx + 1:]] #Generate all possible edges
@@ -101,8 +168,9 @@ def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_pe
 
     #Loss assigning
     for (u, v) in network.edges(): #Assign loss values to all edges (loss in dB)
-        loss = random.uniform(loss_range[0], loss_range[1])
-        network[u][v]['loss'] = loss
+        if 'loss' not in network[u][v]:
+            network[u][v]['loss'] = random.uniform(loss_range[0], loss_range[1])
+
 
 
     #Initialize available channels for each source

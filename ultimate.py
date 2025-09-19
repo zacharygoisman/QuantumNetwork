@@ -23,18 +23,25 @@ import plot
 @dataclass
 class Config:
     #Topology
-    num_users = 15
+    num_users = 6
     num_sources = 3
-    num_edges = 100
-    num_links = 3
-    loss_range = (2.0, 20.0)
+    num_edges = 10
+    num_links = 5
+    loss_range = (2.0, 20.0) #(12.0, 32.0)
     topology = "ring"   #'ring' | 'dense' | 'star' | 'kite' | None
-    density = 0.35               #used when topology='dense'
+    kite_loss_values = {  #Only for kite topology
+        ('Alice',  'Alice_S'): 11.5,
+        ('Bob',    'Alice_S'): 16.0,
+        ('Alice',  'Bob_S')  : 14.2,
+        ('Bob',    'Bob_S')  :  9.8,
+        ('Charlie','Bob_S')  : 21.0,
+    }
+    density = 0.2               #used when topology='dense'
     num_channels_per_source = None  #None => default in create_network
-    #num_channels_per_source = [1000, 45, 20, 68, 84]
+    num_channels_per_source = [10, 33, 20, 25, 15, 22]
 
     #Physics / constraints
-    fidelity_limit = np.repeat(0.7, num_links)
+    fidelity_limit = np.repeat(0.5, num_links)
     #fidelity_limit = [0.7, 0.7, 0.7, 0.7]
     tau = 1e-9
     d1 = 100.0
@@ -49,12 +56,12 @@ class Config:
 
     #Salvage (quick retries for great but infeasible combos)
     enable_salvage = True
-    salvage_k_caps = (1, 2)
+    salvage_k_caps = [2,1]
     salvage_trigger_ratio = 0.92
 
     #Early stop controls (all optional)
     stop_attempts = 0     #0 disables attempt‑count stop
-    stop_successes = 0    #0 disables 'N successes' stop
+    stop_successes = 100    #0 disables 'N successes' stop
     loss_multiplier_stop = 1000000  #large => disabled
 
     #I/O
@@ -112,7 +119,7 @@ def per_link_upper_bound(L):
                 ub_x=None, ub_path1=None, ub_path2=None)
 
     for p in L.get('paths', []):   #{'source','path1','path2','y1','y2'}
-        y1 = float(p.get('y1', 0.0)); y2 = float(p.get('y2', 0.0)) #TODO: Check why loss doesnt seem to impact result
+        y1 = float(p.get('y1', 0.0)); y2 = float(p.get('y2', 0.0))
         #No explicit one-channel cap stored in L → treat as unbounded here
         val, x, expr = per_link_ub_value(y1, y2, F_eff, x_one_channel_cap=None, on_infeasible="none")
         if val is None or not np.isfinite(val):
@@ -202,7 +209,6 @@ def per_link_ub_for_chosen_path(link_obj):
 def combo_upper_bound_at_fidelity(combo):
     #Finds upper bound utility for every link
     return float(sum(per_link_ub_for_chosen_path(lk) for lk in combo['combo']))
-
 
 def _edges(path_nodes):
     #Turns list of nodes into list of tuple edges
@@ -310,7 +316,7 @@ def _get_source_capacity(sources, src_id):
 #==========================
 
 def build_network(cfg: Config):
-    net, users, sources = create_network.create_network(cfg.num_users, cfg.num_sources, cfg.num_edges, cfg.loss_range, cfg.num_channels_per_source, topology=cfg.topology, density=cfg.density)
+    net, users, sources = create_network.create_network(cfg.num_users, cfg.num_sources, cfg.num_edges, cfg.loss_range, cfg.num_channels_per_source, topology=cfg.topology, density=cfg.density, kite_loss_values=cfg.kite_loss_values)
     net = create_network.create_links(net, users, cfg.num_links)
     net = routing.double_dijkstra(net, sources, cfg.tau, cfg.d1, cfg.d2)
     #attach fidelity limits
@@ -370,24 +376,24 @@ def evaluate_combo(combo, sources, cfg: Config):
         res, util = allocate_channels.network_allocation(sources, combo, allocation_type='APOPT', initial_conditions=0.001, verbose = cfg.verbose)
         assignment = routing.check_interference(combo, res, sources)
 
-        #salvage promising infeasible results #TODO: Check the effectiveness of this channel removing strategy, maybe move it?, also this is what I should do -> figure out how bad the interference is and save that, then take the combo with the least interference or highest utility potential and remove channels 
-        if assignment is None and cfg.enable_salvage:
-            ub_est = combo.get('_ub_combo', float('inf'))
-            is_good = (np.isfinite(ub_est) and util >= cfg.salvage_trigger_ratio * ub_est)
-            if is_good:
-                for cap in cfg.salvage_k_caps:
-                    try:
-                        res2, util2 = allocate_channels.network_allocation(sources, combo, allocation_type='APOPT', initial_conditions=0.001, per_link_k_cap=cap, verbose = cfg.verbose)
-                        assignment2 = routing.check_interference(combo, res2, sources)
-                        if assignment2 is not None:
-                            return dict(
-                                path_id=combo['path_id'], utility=util2,
-                                results=res2, assignment=assignment2, routing_ok=True,
-                                combo=combo, total_loss=combo['total_loss'],
-                                used_sources=len(res2), salvaged=True, k_cap=cap
-                            )
-                    except Exception:
-                        _log_exception("salvage attempt failed", cfg, cap=cap)
+        # #salvage promising infeasible results
+        # if assignment is None and cfg.enable_salvage:
+        #     ub_est = combo.get('_ub_combo', float('inf'))
+        #     is_good = (np.isfinite(ub_est) and util >= cfg.salvage_trigger_ratio * ub_est)
+        #     if is_good:
+        #         for cap in cfg.salvage_k_caps:
+        #             try:
+        #                 res2, util2 = allocate_channels.network_allocation(sources, combo, allocation_type='APOPT', initial_conditions=0.001, per_link_k_cap=cap, verbose = cfg.verbose)
+        #                 assignment2 = routing.check_interference(combo, res2, sources)
+        #                 if assignment2 is not None:
+        #                     return dict(
+        #                         path_id=combo['path_id'], utility=util2,
+        #                         results=res2, assignment=assignment2, routing_ok=True,
+        #                         combo=combo, total_loss=combo['total_loss'],
+        #                         used_sources=len(res2), salvaged=True, k_cap=cap
+        #                     )
+        #             except Exception:
+        #                 _log_exception("salvage attempt failed", cfg, cap=cap)
 
         return dict(
             path_id=combo['path_id'],
