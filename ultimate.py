@@ -1,5 +1,5 @@
 
-#ultimate_refactored.py
+#ultimate.py
 #Code that calls many functions
 #
 #-------------------------------------------------------------
@@ -23,26 +23,26 @@ import plot
 @dataclass
 class Config:
     #Topology
-    num_users = 6
-    num_sources = 3
-    num_edges = 10
-    num_links = 5
-    loss_range = (2.0, 20.0) #(12.0, 32.0)
-    topology = "ring"   #'ring' | 'dense' | 'star' | 'kite' | None
+    num_users = 20
+    num_sources = 1
+    num_edges = 10000
+    num_links = 3
+    loss_range = (0, 5.0) #(12.0, 32.0)
+    topology = "kite"   #'ring' | 'dense' | 'star' | 'kite' | None
     kite_loss_values = {  #Only for kite topology
-        ('Alice',  'Alice_S'): 11.5,
-        ('Bob',    'Alice_S'): 16.0,
-        ('Alice',  'Bob_S')  : 14.2,
-        ('Bob',    'Bob_S')  :  9.8,
-        ('Charlie','Bob_S')  : 21.0,
+        ('Charlie',  'Bob'): 0.75, #Charlie to Bob
+        ('Erin',    'Bob'): 0.75, #Erin to Bob
+        ('Charlie',  'Alice')  : 4, #Charlie to Alice
+        ('Erin',    'Alice')  :  0.75, #Erin to Alice
+        ('Dave','Alice')  : 1, #Dave to Alice
     }
     density = 0.2               #used when topology='dense'
     num_channels_per_source = None  #None => default in create_network
-    num_channels_per_source = [10, 33, 20, 25, 15, 22]
+    #num_channels_per_source = [70, 43, 60, 55, 85, 52, 63, 63, 72, 29, 9, 34, 22]
 
     #Physics / constraints
-    fidelity_limit = np.repeat(0.5, num_links)
-    #fidelity_limit = [0.7, 0.7, 0.7, 0.7]
+    fidelity_limit = np.repeat(0.94, num_links)
+    #fidelity_limit = [0.9, 0.88, 0.89, 0.94, 0.86, 0.87, 0.94, 0.91, 0.9, 0.93, 0.89, 0.94, 0.93, 0.85, 0.92, 0.94, 0.91, 0.9, 0.93, 0.89, 0.94, 0.93, 0.85, 0.92]
     tau = 1e-9
     d1 = 100.0
     d2 = 3500.0
@@ -54,23 +54,39 @@ class Config:
     skip_below_best_ub = True        #skip combos whose UB can't beat current best
     ub_skip_eps = 1e-9               #small tolerance for float comparisons
 
-    #Salvage (quick retries for great but infeasible combos)
-    enable_salvage = True
+    #Salvage (quick retries for great but infeasible combos) #TODO: Get salvage working
+    enable_salvage = False
     salvage_k_caps = [2,1]
     salvage_trigger_ratio = 0.92
 
     #Early stop controls (all optional)
     stop_attempts = 0     #0 disables attempt‑count stop
-    stop_successes = 100    #0 disables 'N successes' stop
+    stop_successes = 20    #0 disables 'N successes' stop
     loss_multiplier_stop = 1000000  #large => disabled
+
+    # Parallelism
+    parallel = True             # turn on/off parallel evaluation
+    workers = None              # None => os.cpu_count()
+    executor = "process"        # "process" | "thread"
+
+    # Parallel batching & flow control
+    parallel_batch_size = 16         # submit at most this many new tasks in a batch
+    max_inflight = 64                # cap on tasks concurrently in-flight
+    as_completed_yield = 4           # process this many completions before submitting more
 
     #I/O
     out_dir = Path("outputs")
     make_plots = True #Toggles plot generation
     report_csv = False #Create the csv files
 
+    # Combo-generation controls
+    top_k_per_link = 0       # shortlist size per link (None/0 = keep all)
+    shortlist_by = "ub"      # "ub" or "loss"
+    max_combos = None # hard cap on number of combos pulled
+    time_limit_s = None  # wall-clock budget for combo generation
+
     #Misc
-    verbose = True #For printing terminal messages
+    verbose = False #For printing terminal messages
 
 #==========================
 #2) Logging helpers
@@ -311,6 +327,15 @@ def _get_source_capacity(sources, src_id):
             return int(v)
     return 10**9  #conservative: don't prune by mistake
 
+def _capacity_ok(sources, counts: dict):
+    for s, cnt in counts.items():
+        cap = sources.get(s, {}).get('available_channels', [])
+        cap_n = len(cap) if hasattr(cap, '__len__') else int(cap or 0)
+        if cnt > cap_n:   # at least 1 ch per link from a source
+            return False
+    return True
+
+
 #==========================
 #4) Core pipeline stages
 #==========================
@@ -328,48 +353,27 @@ def _links_per_source(combo_dict):
     return Counter(lk['path']['source'] for lk in combo_dict['combo'])
 
 def enumerate_and_score_combos(net, sources, cfg: Config):
-    combos = routing.path_combinations(net) #Determine the path combos
-    ideal_ub = ideal_upper_bound_at_fidelity(net) #Find the highest possible upper bound
+    path_sets = routing.prepare_path_sets(
+        net,
+        top_k_per_link = getattr(cfg, 'top_k_per_link', 8),
+        shortlist_by   = getattr(cfg, 'shortlist_by', 'ub')
+    )
 
-    for c in combos: #Determine the upper bound for every combo and store it
-        c['_ub_combo'] = combo_upper_bound_at_fidelity(c)
-        c['_metrics'] = combo_overlap_metrics(c)
+    stream = routing.combo_stream_best_first(
+        net, path_sets,
+        max_combos=getattr(cfg, 'max_combos', None),
+        time_limit_s=getattr(cfg, 'time_limit_s', None),
+        # keep fast capacity check; it’s cheap
+        capacity_fn=lambda counts: _capacity_ok(sources, counts)
+    )
 
-    #sort most promising first
-    combos.sort(key=lambda c: c['_ub_combo'], reverse=True)
-
-    annotated, pruned = [], []
-    if cfg.enable_fast_prune:
-        for c in combos:
-            pruned_reason = None
-
-            counts = _links_per_source(c)
-            for src_id, cnt in counts.items():
-                cap = _get_source_capacity(sources, src_id)
-                if cnt > cap:
-                    pruned_reason = f"count={cnt} > cap={cap} @ source={src_id} (min 1 ch/link)"
-                    break
-
-            #If still not pruned, run the reuse-aware LB (optional, keeps your old logic)
-            if pruned_reason is None:
-                graphs = _build_source_conflict_graph(c)
-                for src_id, G in graphs.items():
-                    lb  = _greedy_clique_lb(G)           #or _exact_max_clique_size(G)
-                    cap = _get_source_capacity(sources, src_id)
-                    if lb > cap:
-                        pruned_reason = f"clique_lb={lb} > cap={cap} @ source={src_id}"
-                        break
-
-            if pruned_reason:
-                c['_pruned'] = pruned_reason
-                pruned.append(c)
-            else:
-                annotated.append(c)
-    else:
-        annotated = combos
+    ideal_ub = ideal_upper_bound_at_fidelity(net)
+    return stream, ideal_ub
 
 
-    return annotated, pruned, ideal_ub
+def _eval_worker(args):
+    combo, sources, cfg = args
+    return evaluate_combo(combo, sources, cfg)
 
 def evaluate_combo(combo, sources, cfg: Config):
     try:
@@ -612,66 +616,247 @@ def run_pipeline(cfg: Config = Config()):
     net, sources = build_network(cfg)
     net.graph['tau'] = cfg.tau  #used by summarize
 
-    #Enumerate & score
-    combos, pruned, ideal_ub = enumerate_and_score_combos(net, sources, cfg)
-    max_index = len(combos)  #default: all
-    if cfg.stop_attempts:    #(optional, if you want attempt-based stopping)
-        max_index = min(max_index, cfg.stop_attempts)
+    # Enumerate & score (streaming)
+    stream, ideal_ub = enumerate_and_score_combos(net, sources, cfg)
 
-    if combos:
-        min_loss = min(c['total_loss'] for c in combos)
-    else:
-        min_loss = float('inf')
+    # rolling min-loss for loss-window gating
+    global_min_loss = [float('inf')]
+    def in_loss_window(c):
+        tl = float(c.get('total_loss', float('inf')))
+        if not np.isfinite(tl):
+            return False
+        # if the multiplier is huge, effectively disable the window
+        if cfg.loss_multiplier_stop >= 1e9:
+            # still keep track of a min for potential later use
+            if tl < global_min_loss[0]:
+                global_min_loss[0] = tl
+            return True
+        # update rolling min
+        if tl < global_min_loss[0]:
+            global_min_loss[0] = tl
+            return True
+        return tl <= cfg.loss_multiplier_stop * global_min_loss[0]
 
-    def in_loss_window(c): 
-        return c['total_loss'] <= cfg.loss_multiplier_stop * min_loss
-
-    combos = [c for c in combos[:max_index] if in_loss_window(c)] #Determines which combos have enough loss to stop code based on loss multiplier setting
+    def pull_batch(n):
+        """Pull up to n promising combos from the stream, honoring loss window."""
+        out = []
+        while len(out) < n:
+            try:
+                c = next(stream)
+            except StopIteration:
+                break
+            if in_loss_window(c):
+                out.append(c)
+        return out
 
     dashed_limit = float(ideal_ub)
-
-    log(f"Generated {len(combos)} combos  (pruned: {len(pruned)})", cfg=cfg)
 
     best = None
     successes = 0
     attempts = 0
-    all_utilities = []   #collect utilities for utility_comparison plot
+    all_utilities = []   # collect utilities for utility_comparison plot
 
-    for idx, combo in enumerate(combos):
-        #------ UB-dominated skip / stop ------
-        if cfg.skip_below_best_ub and best is not None:
-            ub = float(combo.get('_ub_combo', float('inf')))
-            best_util = float(best['utility'])
-            #If even the UB can't beat current best (within eps), stop early (since sorted by UB).
-            if np.isfinite(ub) and ub <= best_util + cfg.ub_skip_eps:
-                if cfg.verbose:
-                    print(f"[UB stop] combo#{idx} path_id={combo.get('path_id')} "
-                        f"UB={ub:.6f} <= best={best_util:.6f} → stopping search.")
-                break
-        #-------------------------------------
+    #parallel or sequential evaluation
+    if cfg.parallel:
+        import os
+        from collections import deque
+        from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait, FIRST_COMPLETED
 
-        attempts += 1
-        res = evaluate_combo(combo, sources, cfg)
-        if cfg.verbose and 'error' in res:
-            print(f"[evaluate_combo returned error] path_id={res.get('path_id')} :: {res['error']}")
+        pool_cls = ProcessPoolExecutor if cfg.executor == "process" else ThreadPoolExecutor
+        max_workers = cfg.workers or os.cpu_count() or 1
 
-        #record the utility (if present) for the scatter plot
-        if 'utility' in res and res['utility'] is not None:
+        def ub_promising(next_ub: float, best_util: float | None) -> bool:
+            if not cfg.skip_below_best_ub:
+                return True
+            if best_util is None:
+                return True
+            if not np.isfinite(next_ub):
+                return True
+            return next_ub > (best_util + cfg.ub_skip_eps)
+
+        def attempts_ok():  # 0 means disabled
+            return (not cfg.stop_attempts) or (attempts < cfg.stop_attempts)
+
+        def successes_ok():
+            return (not cfg.stop_successes) or (successes < cfg.stop_successes)
+
+        inflight = {}                  # fut -> combo
+        pending  = deque()             # persistent buffer: combos fetched but not yet submitted
+        ub_shutdown = [False]          # once True, we stop submitting new tasks (matches sequential UB stop)
+
+        def refill_pending(target_extra: int):
+            """
+            Pull up to target_extra new items from the stream (after loss-window),
+            appending to 'pending'. Never discards anything already in 'pending'.
+            """
+            added = 0
+            while added < target_extra:
+                try:
+                    c = next(stream)
+                except StopIteration:
+                    break
+                if in_loss_window(c):
+                    pending.append(c)
+                    added += 1
+            return added
+
+        with pool_cls(max_workers=max_workers) as ex:
+
+            def try_submit_up_to(limit: int):
+                """
+                Submit up to 'limit' new tasks, respecting max_inflight.
+                Never discards candidates; extras remain in 'pending'.
+                If UB gate (when enabled) says stop, set ub_shutdown=True.
+                """
+                if ub_shutdown[0]:
+                    return 0
+
+                submitted = 0
+                best_util_val = float(best['utility']) if best is not None else None
+
+                # Ensure we have enough in pending to try submissions.
+                need = max(0, limit - len(pending))
+                if need > 0:
+                    # small overfetch: try to have a little cushion but don't lose items
+                    refill_pending(need)
+
+                # While we have capacity and candidates, submit.
+                while (len(inflight) < cfg.max_inflight) and (submitted < limit) and pending:
+                    c = pending[0]  # peek; only pop if we will submit
+                    next_ub = float(c.get('_ub_combo', float('inf')))
+
+                    if not ub_promising(next_ub, best_util_val):
+                        # Match sequential behavior: once UB wall is hit, stop all new submissions.
+                        ub_shutdown[0] = True
+                        break
+
+                    # Consume and submit this candidate
+                    c = pending.popleft()
+                    fut = ex.submit(_eval_worker, (c, sources, cfg))
+                    inflight[fut] = c
+                    submitted += 1
+
+                    # If we still have room to submit but pending is low, try a small top-up.
+                    if (submitted < limit) and (len(inflight) < cfg.max_inflight) and (len(pending) == 0):
+                        # pull a few more to keep pipe primed
+                        refill_pending(max(1, limit - submitted))
+
+                return submitted
+
+            # Seed initial submissions
+            try_submit_up_to(min(cfg.parallel_batch_size, cfg.max_inflight))
+
+            while inflight or (attempts_ok() and successes_ok()):
+                # If nothing in-flight, try to submit more; if we can't, we’re done.
+                if not inflight:
+                    if try_submit_up_to(min(cfg.parallel_batch_size, cfg.max_inflight)) == 0:
+                        break
+                    continue
+
+                done, _ = wait(list(inflight.keys()), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    c = inflight.pop(fut)
+                    try:
+                        res = fut.result()
+                    except Exception as e:
+                        res = {'error': str(e)}
+
+                    attempts += 1
+
+                    if 'utility' in res and res['utility'] is not None:
+                        try:
+                            all_utilities.append(float(res['utility']))
+                        except Exception:
+                            pass
+
+                    if res.get('routing_ok'):
+                        successes += 1
+                        if best is None or float(res['utility']) > float(best['utility']):
+                            best = res
+
+                if attempts_ok() and successes_ok():
+                    # Submit a few more based on completions processed
+                    try_submit_up_to(max(1, cfg.as_completed_yield))
+
+
+    else:
+        # === Streaming sequential loop (no pre-built combos list) ===
+
+        # rolling min-loss for the loss-window gate
+        global_min_loss = [float('inf')]
+        def in_loss_window(c):
+            tl = float(c.get('total_loss', float('inf')))
+            if not np.isfinite(tl):
+                return False
+            # effectively disable if multiplier is huge
+            if cfg.loss_multiplier_stop >= 1e9:
+                if tl < global_min_loss[0]:
+                    global_min_loss[0] = tl
+                return True
+            # update rolling min and test gate
+            if tl < global_min_loss[0]:
+                global_min_loss[0] = tl
+                return True
+            return tl <= cfg.loss_multiplier_stop * global_min_loss[0]
+
+        # helper: UB gate check on the *next* candidate
+        def ub_promising(next_ub, best_util):
+            if not cfg.skip_below_best_ub:
+                return True
+            if best_util is None:
+                return True
+            if not np.isfinite(next_ub):
+                return True
+            return next_ub > (best_util + cfg.ub_skip_eps)
+
+        # pull from the stream until exhausted or stop conditions trigger
+        while True:
+            # get next candidate
             try:
-                all_utilities.append(float(res['utility']))
-            except Exception:
-                pass
+                combo = next(stream)   # <-- stream returned by enumerate_and_score_combos(...)
+            except StopIteration:
+                break
 
-        if res.get('routing_ok'):
-            successes += 1
-            if best is None or float(res['utility']) > float(best['utility']):
-                best = res
+            # global UB stop (stream is already sorted by _ub_combo descending)
+            if best is not None:
+                next_ub = float(combo.get('_ub_combo', float('inf')))
+                if not ub_promising(next_ub, float(best['utility'])):
+                    if cfg.verbose:
+                        print(f"[UB stop] next UB={next_ub:.6f} <= best={float(best['utility']):.6f} → stopping search.")
+                    break
 
-        #early stops?
-        if cfg.stop_attempts and attempts >= cfg.stop_attempts:
-            break
-        if cfg.stop_successes and successes >= cfg.stop_successes:
-            break
+            # loss-window filter (cheap)
+            if not in_loss_window(combo):
+                continue
+
+            # evaluate
+            attempts += 1
+            res = evaluate_combo(combo, sources, cfg)
+
+            if cfg.verbose and 'error' in res:
+                print(f"[evaluate_combo returned error] path_id={res.get('path_id')} :: {res['error']}")
+
+            u = res.get('utility')
+            if u is not None and np.isfinite(u):
+                try:
+                    all_utilities.append(float(u))
+                except Exception:
+                    pass
+
+            if res.get('routing_ok'):
+                successes += 1
+                if best is None or float(u) > float(best['utility']):
+                    best = res
+
+            # early stops (0 means disabled)
+            if cfg.stop_attempts and attempts >= cfg.stop_attempts:
+                if cfg.verbose:
+                    print(f"[stop_attempts] attempts={attempts} reached limit={cfg.stop_attempts}")
+                break
+            if cfg.stop_successes and successes >= cfg.stop_successes:
+                if cfg.verbose:
+                    print(f"[stop_successes] successes={successes} reached limit={cfg.stop_successes}")
+                break
 
     if best is None:
         log("No feasible result found.", cfg=cfg) 

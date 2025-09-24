@@ -7,7 +7,7 @@ import random
 import numpy as np
 
 #create_network allows one to make an arbitrary network given user inputs. This also contains the various topology presets.
-def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_per_source=[None], topology=None, density = 0.5, kite_loss_values=None):
+def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_per_source=[None], topology=None, density=0.5, kite_loss_values=None, figure_loss_values=None):
     '''
     Inputs:
     num_usr, num_src, num_edg are for setting the number of a particular item in the network
@@ -115,8 +115,8 @@ def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_pe
             network.add_edge(node, central_src)  #Connect to a source in the ring
 
     elif topology == 'kite': #Kite Topology: 3 users and 2 sources
-        node_src = [f"Alice_S", f"Bob_S"]
-        node_usr = [f"Alice", f"Bob", f"Charlie"]
+        node_src = [f"Bob", f"Alice"]
+        node_usr = [f"Charlie", f"Erin", f"Dave"]
         network.add_nodes_from(node_src, node_type='source')
         network.add_nodes_from(node_usr, node_type='user')
 
@@ -150,6 +150,61 @@ def create_network(num_usr, num_src, num_edg, loss_range=(1,30), num_channels_pe
             else:
                 # if a specific edge wasn't given, fall back to a reasonable default
                 network[u][v]['loss'] = float(np.mean(list(preset.values())))
+    elif topology == 'figure':
+        node_src = ["S_left", "S_mid", "S_bottom"]
+        node_usr = ["U_blue_LT","U_green_LU","U_red_TC","U_green_TR",
+                    "U_red_R","U_yellow_MR","U_yellow_ML","U_blue_BL"]
+
+        network.add_nodes_from(node_src, node_type='source')
+        color_tag = {
+            "U_blue_LT":"blue","U_green_LU":"green","U_red_TC":"red","U_green_TR":"green",
+            "U_red_R":"red","U_yellow_MR":"yellow","U_yellow_ML":"yellow","U_blue_BL":"blue"
+        }
+        for u in node_usr:
+            network.add_node(u, node_type='user', color=color_tag.get(u))
+
+        # Wires exactly like your figure
+        edges = [
+            ("U_blue_LT","S_left"), ("U_blue_LT","U_green_LU"),
+            ("U_green_LU","U_yellow_ML"), ("S_left","U_yellow_ML"),
+            ("U_green_LU","U_red_TC"), ("U_red_TC","S_mid"),
+            ("S_mid","U_yellow_ML"), ("S_mid","U_yellow_MR"),
+            ("U_yellow_ML","U_blue_BL"), ("U_blue_BL","S_bottom"),
+            ("S_bottom","U_yellow_ML"), ("S_bottom","U_yellow_MR"),
+            ("U_yellow_MR","U_red_R"), ("U_green_TR","U_red_R")
+        ]
+        network.add_edges_from(edges)
+
+        # Fixed coordinates (roughly matching your screenshot)
+        pos = {
+            "U_blue_LT":  (-3.0,  1.4),
+            "S_left":     (-3.0, -0.2),
+            "U_green_LU": (-2.0,  0.7),
+            "U_yellow_ML":(-2.1, -0.2),
+            "U_blue_BL":  (-2.5, -1.3),
+            "U_red_TC":   (-0.2,  1.4),
+            "S_mid":      ( 0.0,   0.2),
+            "S_bottom":   (-0.9,  -1.0),
+            "U_yellow_MR":( 1.0,  -0.1),
+            "U_red_R":    ( 2.0,   0.3),
+            "U_green_TR": ( 1.2,   1.1),
+        }
+        network.graph['pos'] = pos  # <- only set for the 'figure' preset
+
+        # Optional: preset losses you can override with figure_loss_values
+        default_figure_losses = {
+            ("U_blue_LT","S_left"):13.0, ("U_blue_LT","U_green_LU"):11.0,
+            ("U_green_LU","U_yellow_ML"):9.5, ("S_left","U_yellow_ML"):12.0,
+            ("U_green_LU","U_red_TC"):10.5, ("U_red_TC","S_mid"):8.0,
+            ("S_mid","U_yellow_ML"):14.0, ("S_mid","U_yellow_MR"):10.0,
+            ("U_yellow_ML","U_blue_BL"):11.5, ("U_blue_BL","S_bottom"):7.5,
+            ("S_bottom","U_yellow_ML"):9.0, ("S_bottom","U_yellow_MR"):8.5,
+            ("U_yellow_MR","U_red_R"):12.5, ("U_green_TR","U_red_R"):9.0
+        }
+        preset = figure_loss_values or default_figure_losses
+        for (u, v) in edges:
+            network[u][v]['loss'] = float(preset.get((u, v), preset.get((v, u),
+                                        np.mean(list(preset.values())))))
 
     else: #Arbitrary topology that randomly chooses the edges
         network.add_nodes_from(node_src, node_type='source')
@@ -216,7 +271,9 @@ def create_links(network, node_usr, num_lnk = 1, link_pairs = None):
 
 #plot_network plots the graph topology
 def plot_network(network):
-    pos = nx.spring_layout(network)
+    # use fixed positions if the graph provides them; otherwise spring_layout
+    pos = network.graph.get('pos', nx.spring_layout(network))
+
     plt.figure(figsize=(12, 10))
 
     #Draw nodes with colors based on node type.
@@ -238,7 +295,6 @@ def plot_network(network):
         if 'channels_assigned' in desired_link:
             link_color = desired_link['color']
             paths = desired_link['paths']
-            #Combine both paths (user1->source and user2->source)
             edges_u1 = list(zip(paths['user1'], paths['user1'][1:]))
             edges_u2 = list(zip(paths['user2'], paths['user2'][1:]))
             edges_in_link = edges_u1 + edges_u2
@@ -281,6 +337,7 @@ def main():
     num_usr, num_src, num_edg, num_lnk, top = 7, 1, 20, 5, 'star' #Star
     num_usr, num_src, num_edg, num_lnk, top = 9, 6, 20, 5, 'ring' #Ring
     #num_usr, num_src, num_edg, num_lnk, top = 8, 5, 20, 5, 'dense' #Dense
+    num_usr, num_src, num_edg, num_lnk, top = 1, 1, 1, 1, 'kite' #Figure
     loss_range=(1,30)
     network, node_usr, sources = create_network(num_usr, num_src, num_edg, loss_range, num_channels_per_source=[None], topology=top, density = 0.4)
     network = create_links(network, node_usr, num_lnk, link_pairs = None)

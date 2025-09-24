@@ -176,16 +176,12 @@ def utility_comparison(all_utilities, dashed_limit, outfile='outputs/utility_com
 import matplotlib.patheffects as pe
 
 def plot_network_final(network, previous_best_results, freqs_by_link=None):
-    """
-    Draw network; legend per link:
-    U1–S–U2 | total_loss | per-link utility | +[ch list] → U1
-    Also overlays per-edge *loss* values centered on each USED edge.
-    """
     if previous_best_results is None:
         print("[plot] No feasible solution to draw – skipping plot_network_final")
         return
 
-    pos = nx.spring_layout(network)
+    # keep positions stable if available; otherwise use a seeded spring for reproducibility
+    pos = network.graph.get('pos', nx.spring_layout(network, seed=0))
     fig, ax = plt.subplots(figsize=(12, 10))
 
     # Nodes
@@ -194,7 +190,7 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
                    for n, data in network.nodes(data=True)]
     nx.draw_networkx_nodes(network, pos, node_color=node_colors, node_size=500, ax=ax)
 
-    # Background edges
+    # All background edges (light)
     nx.draw_networkx_edges(network, pos, edge_color='lightgray', width=1, ax=ax)
 
     # Unique link colors (stable)
@@ -203,12 +199,8 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
     cmap = plt.get_cmap('tab20')
     link_colors = {link: cmap(i % 20) for i, link in enumerate(unique_links)}
 
-    # Helper to sum loss along a path
     def path_loss(path):
         return sum(network[u][v].get('loss', 1.0) for u, v in zip(path, path[1:]))
-
-    # Collect USED edges so we label only the colored ones
-    used_edges = set()
 
     # Draw selected paths and build legend labels
     for entry in previous_best_results:
@@ -217,28 +209,21 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
         prelogs = entry.get('prelog_rates', [None]*len(links))
 
         for j, (u1, u2) in enumerate(links):
-            # Shortest by 'loss'
+            # If you have the chosen paths stored, prefer those; otherwise, fall back to dijkstra on 'loss'
             p1 = nx.dijkstra_path(network, u1, sname, weight="loss")
             p2 = nx.dijkstra_path(network, u2, sname, weight="loss")
             e1 = list(zip(p1, p1[1:]))
             e2 = list(zip(p2, p2[1:]))
 
-            # Track used edges (both directions, for undirected graphs)
-            for e in e1 + e2:
-                used_edges.add(e)
-                used_edges.add((e[1], e[0]))
-
-            # Draw the link paths (colored)
+            # Colored paths overlaid
             nx.draw_networkx_edges(
                 network, pos, edgelist=(e1 + e2),
                 edge_color=link_colors[(u1, u2)], width=3, alpha=0.6, ax=ax
             )
 
-            # Total loss & per-link utility
             total_loss = path_loss(p1) + path_loss(p2)
             link_util = float(np.log10(prelogs[j])) if prelogs[j] is not None else float('nan')
 
-            # Channels to first user (keep your existing behavior)
             ch_u1 = []
             if freqs_by_link and (u1, u2) in freqs_by_link:
                 ch_u1 = list(freqs_by_link[(u1, u2)][0])
@@ -246,24 +231,27 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
             lbl = f"{u1}–{sname}–{u2} | loss={total_loss:.4f} | U={link_util:.6f} | +{ch_u1}→{u1}"
             ax.plot([], [], color=link_colors[(u1, u2)], label=lbl)
 
-    # ---- draw loss labels on USED edges, centered & rotated, with a white halo ----
+    # === Label loss for ALL edges (used or not) ===
     edge_labels = {}
-    for (u, v) in used_edges:
-        if network.has_edge(u, v):
-            loss = network[u][v].get('loss', 1.0)
-            edge_labels[(u, v)] = f"{loss:.2f}"
+    if network.is_multigraph():
+        # For MultiGraph/MultiDiGraph, include keys so labels attach correctly
+        for u, v, k, data in network.edges(keys=True, data=True):
+            if u == v:  # skip self-loops
+                continue
+            edge_labels[(u, v, k)] = f"{float(data.get('loss', 1.0)):.2f}"
+    else:
+        for u, v, data in network.edges(data=True):
+            if u == v:
+                continue
+            edge_labels[(u, v)] = f"{float(data.get('loss', 1.0)):.2f}"
 
     texts = nx.draw_networkx_edge_labels(
         network, pos, edge_labels=edge_labels, ax=ax,
-        font_size=9, rotate=True,  # rotate to align with edge direction
-        label_pos=0.5              # center of the edge
+        font_size=9, rotate=True, label_pos=0.5
     )
-    # Add a white outline so text reads "inside" the colored stroke
     for t in texts.values():
         t.set_zorder(5)
         t.set_path_effects([pe.withStroke(linewidth=3, foreground='white')])
-
-    # ------------------------------------------------------------------------------
 
     nx.draw_networkx_labels(network, pos, font_size=10, font_weight='bold', ax=ax)
     ax.legend(loc='best', fontsize=10)
@@ -271,6 +259,7 @@ def plot_network_final(network, previous_best_results, freqs_by_link=None):
     plt.tight_layout()
     plt.savefig('outputs/network_plot.svg', dpi=300)
     plt.close()
+
 
 
 #Bar plot to show channel allocation to each link by source.
@@ -410,7 +399,7 @@ def source_allocation(previous_best_results, sources, freqs_by_link=None):
     ax.set_xticks(x)
     ax.set_xticklabels(src_names, rotation=15, ha='right')
     ax.set_xlabel('Source')
-    ax.set_ylabel('Channel index (1 = lowest)')
+    ax.set_ylabel('Channel Frequency')
 
     # Build legend and reorder to start with "Null Link"
     # (In case no "Null Link" bars were drawn yet, ensure it appears:)
@@ -423,3 +412,67 @@ def source_allocation(previous_best_results, sources, freqs_by_link=None):
     plt.savefig('outputs/source_allocation.svg', dpi=300)
     plt.close()
 
+def fidelity_rate():
+    fig, ax = plt.subplots(figsize=(9, 6))
+    y_1 = 0.05
+    y_2 = 0.1
+    flux = np.linspace(0, 1, 1000)  # finer grid helps intersection accuracy
+    rate = flux**2 + (2*y_1 + 2*y_2 + 1)*flux + 4*y_1*y_2
+    fidelity = 0.25*(1 + 3*flux/rate)
+
+    fidelity_min = 0.80
+
+    # Plot
+    ax.plot(flux, fidelity, label='Fidelity')
+    ax.plot(flux, rate, label='Rate')
+
+    ax.axhline(fidelity_min, linestyle='--', linewidth=1.5, label='Fidelity Limit = '+str(fidelity_min), c = 'k')
+
+    diff = fidelity - fidelity_min
+    cross_idx = np.where(np.sign(diff[:-1]) * np.sign(diff[1:]) <= 0)[0]  # sign change => crossing
+
+    # Linearly interpolate each crossing to get a better estimate
+    x_crosses, r_crosses = [], []
+    for i in cross_idx:
+        x0, x1 = flux[i], flux[i+1]
+        y0, y1 = fidelity[i], fidelity[i+1]
+        if y1 == y0:
+            continue  # avoid division by zero (flat segment exactly at level)
+        x_cross = x0 + (fidelity_min - y0) * (x1 - x0) / (y1 - y0)
+        x_crosses.append(x_cross)
+        r_crosses.append(x_cross**2 + (2*y_1 + 2*y_2 + 1)*x_cross + 4*y_1*y_2)
+
+    if len(x_crosses) > 0:
+        x_best = x_crosses[int(np.argmax(r_crosses))]
+        # Vertical line (full axis height so it's easy to see)
+        ax.axvline(x_best, linestyle='--', linewidth=1.5, c = 'k')
+        # Mark the intersection point on the fidelity curve
+        ax.plot([x_best], [fidelity_min], marker='o', ms=7)
+        ax.annotate(
+            f"x={x_best:.4f}\nrate={max(r_crosses):.4f}",
+            xy=(x_best, fidelity_min),
+            xytext=(10, 10),
+            textcoords='offset points',
+            ha='left', va='bottom'
+        )
+    else:
+        print("No intersections found for this fidelity_min. Try a different value.")
+
+    ax.set_xlabel('Flux over Coincidence Window')
+    ax.set_ylabel('Magnitude')
+    ax.set_title('Graphical View of Fidelity and Rate Relation')
+    ax.set_xlim([float(np.min(flux)), float(np.max(flux))])
+    ax.set_ylim([0, 1])
+    ax.legend(loc='best')
+    plt.tight_layout()
+    plt.show()
+    plt.close()
+    #plt.savefig('outputs/fidelity_rate.svg', dpi=300)
+
+
+
+def main():
+    fidelity_rate()
+
+if __name__ == "__main__":
+    main()

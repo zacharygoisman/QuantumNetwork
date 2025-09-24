@@ -3,7 +3,200 @@ import numpy as np
 import itertools
 from ortools.sat.python import cp_model
 from collections import defaultdict
+import heapq
+import math
+from dataclasses import dataclass
 
+@dataclass(frozen=True)
+class _PathOpt:
+    src: str
+    path1: tuple
+    path2: tuple
+    total_loss: float
+    user1_loss: float
+    user2_loss: float
+    y1: float
+    y2: float
+    ub: float  # per-link UB if this path were chosen
+
+def _per_link_path_ub(F_min, y1, y2):
+    """Tight-ish per-path UB for this link choice (reuses your per_link_ub_value)."""
+    if F_min < 0.5: F_min = 0.5
+    val, *_ = per_link_ub_value(y1, y2, F_min, x_one_channel_cap=None, on_infeasible="none")
+    return float(val) if (val is not None and np.isfinite(val)) else float("-inf")
+
+def per_link_ub_value(y1, y2, F_min, x_one_channel_cap, on_infeasible="zero"):
+    """
+    Per-link best utility for the 'best-possible' line, with small fidelity limits
+    treated as 0.5 (useful-entanglement floor).
+
+    Args:
+        y1, y2: link parameters
+        F_min: requested fidelity floor (will be clamped to >= 0.5)
+        x_one_channel_cap: physical cap for x for this link when it's alone on its best source
+                           (if None, no physical cap beyond fidelity)
+        on_infeasible: "zero" -> return 0 if F constraint infeasible; "none" -> return None
+
+    Returns:
+        float (utility = log10(rate) at the per-link bound), or None if infeasible and on_infeasible="none".
+    """
+    #1) Enforce useful-entanglement floor
+    F_eff = max(0.5, float(F_min))
+
+    #2) Build quadratic for F(x) >= F_eff:
+    #  t x^2 + (tA - 3) x + tB <= 0, with t = 4*F_eff - 1  (note: with F_eff>=0.5, t >= 1)
+    t = 4.0*F_eff - 1.0  #>= 1.0 when F_eff >= 0.5
+    A = 2.0*(y1 + y2) + 1.0
+    B = 4.0*y1*y2
+
+    #Discriminant
+    D = (t*A - 3.0)**2 - 4.0*(t**2)*B
+    if D < 0.0:
+        #No x satisfies F(x) >= F_eff for this link
+        return None, None, None if on_infeasible == "none" else 0.0
+
+    #3) Take the **upper** admissible root (larger root)
+    x_fid_max = (3.0 - t*A + math.sqrt(D)) / (2.0*t)
+    if x_fid_max < 0.0:
+        #Entire feasible interval is negative; no nonnegative x satisfies it
+        return None, None, None if on_infeasible == "none" else 0.0
+
+    #4) Apply physical one-channel cap if provided
+    x_star = x_fid_max if (x_one_channel_cap is None) else min(x_fid_max, float(x_one_channel_cap))
+
+    #5) Compute utility at the cap
+    R = _rate_poly(x_star, y1, y2)
+    #(R is always > 0 with these coefficients; safeguard anyway)
+    if R <= 0.0:
+        return None, None, None if on_infeasible == "none" else 0.0
+    return math.log10(R), x_star, R
+
+def _rate_poly(x, y1, y2):
+    A = 2.0*(y1 + y2) + 1.0
+    B = 4.0*y1*y2
+    return x*x + A*x + B
+
+def prepare_path_sets(network, *, top_k_per_link=8, shortlist_by="ub"):
+    """
+    Build compact, precomputed per-link path options with ub/loss cached.
+    Returns a list[path_options], where each path_options is a list[_PathOpt].
+    """
+    links = network.graph['desired_links']
+    out = []
+    for L in links:
+        F = float(L.get('fidelity_limit', 0.5))
+        opts = []
+        for p in L.get('paths', []):
+            y1 = float(p.get('y1', 0.0))
+            y2 = float(p.get('y2', 0.0))
+            ub = _per_link_path_ub(F, y1, y2)
+            opts.append(_PathOpt(
+                src=p['source'],
+                path1=tuple(p['path1']),
+                path2=tuple(p['path2']),
+                total_loss=float(p.get('total_loss', 0.0)),
+                user1_loss=float(p.get('user1_loss', 0.0)),
+                user2_loss=float(p.get('user2_loss', 0.0)),
+                y1=y1, y2=y2, ub=ub
+            ))
+        if not opts:
+            out.append([])
+            continue
+
+        # shortlist
+        if shortlist_by == "loss":
+            opts.sort(key=lambda o: o.total_loss)                # ascending loss
+        else:
+            opts.sort(key=lambda o: o.ub, reverse=True)          # descending UB
+        out.append(opts[:top_k_per_link] if top_k_per_link else opts)
+    return out
+
+def combo_stream_best_first(network, path_sets, *, max_combos=None, time_limit_s=None,
+                            capacity_fn=None):
+    """
+    Yield combos lazily in descending sum-UB order.
+    Each yielded record mirrors your existing combo dict shape.
+    """
+    import time as _time
+    t0 = _time.time()
+    n = len(path_sets)
+    if n == 0: 
+        return
+    # if any link has no options, stop
+    if any(len(ps)==0 for ps in path_sets):
+        return
+    
+    def partial_capacity_ok(idxs_prefix):
+        # counts for assigned indices
+        counts = {}
+        for i, pi in enumerate(idxs_prefix):
+            p = path_sets[i][pi]
+            counts[p.src] = counts.get(p.src, 0) + 1
+        # remaining links can only increase counts, never decrease
+        if capacity_fn is None:
+            return True
+        return capacity_fn(counts)
+
+    # Precompute per-link lengths & an UB-only seed (pick best option per link)
+    # State tuple: (neg_sum_ub, indices tuple)
+    best_idx = tuple(0 for _ in range(n))
+    def sum_ub(idxs):
+        return sum(path_sets[i][idxs[i]].ub for i in range(n))
+
+    # Max heap via negative key
+    heap = [(-sum_ub(best_idx), best_idx)]
+    seen = {best_idx}
+
+    produced = 0
+    links = network.graph['desired_links']
+
+    while heap:
+        if time_limit_s is not None and (_time.time() - t0) >= time_limit_s:
+            break
+        negub, idxs = heapq.heappop(heap)
+        cur_sum_ub = -negub
+
+        # Optional capacity pruning on partials would require implicit BFS levels;
+        # Here we check capacity on full assignment (cheap & keeps code simple):
+        # Build combo dict
+        combo_with_links = []
+        total_loss = 0.0
+        src_counts = {}
+        for i, pi in enumerate(idxs):
+            p = path_sets[i][pi]
+            total_loss += p.total_loss
+            src_counts[p.src] = src_counts.get(p.src, 0) + 1
+            combo_with_links.append({
+                'link': tuple(links[i]['link']),
+                'fidelity_limit': float(links[i]['fidelity_limit']),
+                'path': {
+                    'source': p.src, 'path1': list(p.path1), 'path2': list(p.path2),
+                    'total_loss': p.total_loss, 'user1_loss': p.user1_loss, 'y1': p.y1,
+                    'user2_loss': p.user2_loss, 'y2': p.y2
+                }
+            })
+
+        if capacity_fn is None or capacity_fn(src_counts):
+            yield {
+                'combo': combo_with_links,
+                'total_loss': total_loss,
+                'path_id': produced,
+                'usage_info': 'untested',
+                '_ub_combo': cur_sum_ub
+            }
+            produced += 1
+            if max_combos is not None and produced >= max_combos:
+                break
+
+        # expand neighbors by bumping one link’s option index (+1) each time
+        for j in range(n):
+            nxt = list(idxs)
+            if nxt[j] + 1 < len(path_sets[j]):
+                nxt[j] += 1
+                nxt = tuple(nxt)
+                if nxt not in seen and partial_capacity_ok(nxt):
+                    seen.add(nxt)
+                    heapq.heappush(heap, (-sum_ub(nxt), nxt))
 #double_dijkstra finds the lowest loss paths (and losses) for every source and for every link
 def double_dijkstra(network, sources, tau = 0, d1 = 0, d2 = 0):
     '''
@@ -227,24 +420,27 @@ def check_interference(path_choice, results, sources):
                 neg[i, e, c] = m.NewBoolVar(f"n_{i}_{e}_{c}")
 
     #reify edge usage -----------------------------------------------
-    for c in pool:
-        #U1 arm:   swap=0 → +c,  swap=1 → –c
-        for e in edges_u1[i]:
-            m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
-            m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
-            m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i])
-            m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
-            m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
-            m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
+    for i, src in enumerate(link_src):
+        pool = sources[src]['available_channels']
 
-        #U2 arm:   opposite sign mapping
-        for e in edges_u2[i]:
-            m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
-            m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
-            m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i])
-            m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
-            m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
-            m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
+        # U1 arm: swap=0 → +c, swap=1 → –c
+        for c in pool:
+            for e in edges_u1[i]:
+                m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
+                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i])
+                m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
+                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
+
+            # U2 arm: opposite sign mapping
+            for e in edges_u2[i]:
+                m.Add(neg[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i].Not()])
+                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+                m.Add(neg[i, e, c] == 0).OnlyEnforceIf(swap[i])
+                m.Add(pos[i, e, c] == 1).OnlyEnforceIf([use[i, c], swap[i]])
+                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(use[i, c].Not())
+                m.Add(pos[i, e, c] == 0).OnlyEnforceIf(swap[i].Not())
 
     #edge-conflict: ≤1 pos and ≤1 neg per (edge, channel) --------------
     for e in all_edges:
