@@ -2,24 +2,24 @@
 Research project for optimizing quantum network routing and resource allocation, with the eventual hope of creating a physical system.
 
 We have two goals at the moment:
-1. Optimize channel allocation within a source to all links using said source. (Resource Allocation)
-2. Find the best source and path for each pair of users. (Routing)
+1. Optimize channel allocation within a source to all lightpaths using said source. (Resource Allocation)
+2. Find the best source and route for each pair of users. (Routing)
 
 This may be expanded on later when considering a dynamic network or a physical system.
 
 **Definitions**
-We define that a source is a node that sends the entangled bits to the users. A link is established between two users if the source sends entangled bits to each user pair. Channels are the frequencies that a source allocates to the link pairs, where each frequency channel has some flux, representing the entangled photon rate. Lastly, a path is the route in a network that a link uses.
+We define that a source is a node that sends the entangled bits to the users. A lightpath is established between two users if the source sends entangled bits to each user pair. Channels are the frequencies that a source allocates to the lightpath pairs, where each frequency channel has some flux, representing the entangled photon rate. Lastly, a route in a network is the set of edges the lightpath takes.
 
 **How does this system work?**  
-Focusing on the first goal, say we have one source and all **L** user pairs (called links) wish to connect to that source. The source has some finite number of channels **K** it can allocate to these links. These channels all have some flux value **μ** determined by the source. Each link has a fidelity limit, say **0.7**, that is a lower bound on the fidelity each link can have, where the fidelity of a link is calculated from the following equation:
+Focusing on the first goal, say we have one source and all **L** user pairs (called lightpath) wish to connect to that source. The source has some finite number of channels **K** it can allocate to these lightpaths. These channels all have some flux value **μ** determined by the source. Each lightpath has a fidelity limit, say **0.7**, that is a lower bound on the fidelity each lightpath can have, where the fidelity of a lightpath is calculated from the following equation:
 
 $$F = 0.25 \cdot \left( 1 + \frac{3x}{x^2 + x(2y_1 + 2y_2 + 1) + 4y_1 y_2} \right)$$
 
-**y₁** and **y₂** are noise constants that depend on constants like efficiency that are related to each individual link. **x** is the total fidelity being allocated to each link based on the channels, and is a function of **μ**. This means that there is a limit to the amount of flux and by extension channels one can allocate to a link before it goes below the fidelity limit. Based on the equation, we can see that generally a larger flux causes a smaller fidelity. However, the main optimization goal is to maximize rate, which is calculated as such:
+**y₁** and **y₂** are noise constants that depend on constants like efficiency that are related to each individual lightpath. **x** is the total fidelity being allocated to each lightpath based on the channels, and is a function of **μ**. This means that there is a limit to the amount of flux and by extension channels one can allocate to a lightpath before it goes below the fidelity limit. Based on the equation, we can see that generally a larger flux causes a smaller fidelity. However, the main optimization goal is to maximize rate, which is calculated as such:
 
 $$R = x^2 + x(2y_1 + 2y_2 + 1) + 4y_1 y_2$$
 
-As we can see, the rate **R** generally is inversely proportional to the fidelity **F**, so we want to essentially maximize our allocated flux to the link or make the fidelity of the link as close to its limit as possible. This problem is a variation of the multiple knapsack problem. In order to solve it, we use the APOPT optimizer, a nonlinear programming solver, to determine the best allocation of channels to links by solving the following:
+As we can see, the rate **R** generally is inversely proportional to the fidelity **F**, so we want to essentially maximize our allocated flux to the lightpath or make the fidelity of the lightpath as close to its limit as possible. This problem is a variation of the multiple knapsack problem. In order to solve it, we use the APOPT optimizer, a nonlinear programming solver, to determine the best allocation of channels to lightpaths by solving the following:
 
 $$
 \begin{aligned}
