@@ -1,4 +1,3 @@
-
 #ultimate.py
 #Code that calls many functions
 #
@@ -23,12 +22,12 @@ import plot
 @dataclass
 class Config:
     #Topology
-    num_users = 20
-    num_sources = 1
+    num_users = 7
+    num_sources = 2
     num_edges = 10000
-    num_links = 3
-    loss_range = (0, 5.0) #(12.0, 32.0)
-    topology = "kite"   #'ring' | 'dense' | 'star' | 'kite' | None
+    num_links = 4
+    loss_range = (0, 3.0) #(12.0, 32.0)
+    topology = "dense"   #'ring' | 'dense' | 'star' | 'kite' | None
     kite_loss_values = {  #Only for kite topology
         ('Charlie',  'Bob'): 0.75, #Charlie to Bob
         ('Erin',    'Bob'): 0.75, #Erin to Bob
@@ -36,28 +35,32 @@ class Config:
         ('Erin',    'Alice')  :  0.75, #Erin to Alice
         ('Dave','Alice')  : 1, #Dave to Alice
     }
-    density = 0.2               #used when topology='dense'
+    density = 0.25               #used when topology='dense'
     num_channels_per_source = None  #None => default in create_network
-    #num_channels_per_source = [70, 43, 60, 55, 85, 52, 63, 63, 72, 29, 9, 34, 22]
+    num_channels_per_source = [10, 12, 8, 13, 85, 52, 63, 63, 72, 29, 9, 34, 22]
+    #num_channels_per_source = [np.random.randint(20, 80) for _ in range(num_sources)]
 
     #Physics / constraints
-    fidelity_limit = np.repeat(0.94, num_links)
-    #fidelity_limit = [0.9, 0.88, 0.89, 0.94, 0.86, 0.87, 0.94, 0.91, 0.9, 0.93, 0.89, 0.94, 0.93, 0.85, 0.92, 0.94, 0.91, 0.9, 0.93, 0.89, 0.94, 0.93, 0.85, 0.92]
+    fidelity_limit = np.repeat(0.9, num_links)
+    fidelity_limit = [0.9, 0.88, 0.89, 0.94, 0.86, 0.87, 0.94, 0.91, 0.9, 0.93, 0.89, 0.94, 0.93, 0.85, 0.92, 0.94, 0.91, 0.9, 0.93, 0.89, 0.94, 0.93, 0.85, 0.92]
+    #fidelity_limit = [np.random.uniform(0.80, 0.90) for _ in range(num_links)]
     tau = 1e-9
     d1 = 100.0
     d2 = 3500.0
     y1 = None #None => default in create_network
     y2 = None #None => default in create_network
 
-    #Pruning / UB control
-    enable_fast_prune = True         #prune based on figuring out which cases are impossible based on how many links are traveling through the edges
+    #Pruning / UB control #TODO: Maybe invest in scanning a handful of combinations that are likely to have near maximum values. Then we run those and hopefully get something good 
     skip_below_best_ub = True        #skip combos whose UB can't beat current best
     ub_skip_eps = 1e-9               #small tolerance for float comparisons
 
-    #Salvage (quick retries for great but infeasible combos) #TODO: Get salvage working
-    enable_salvage = False
-    salvage_k_caps = [2,1]
-    salvage_trigger_ratio = 0.92
+    #Routing
+    routing_algo = "yen"        # "yen" or "dijkstra"
+    k_paths_per_leg = 3         # Yen: how many alternatives per user→source leg
+    yen_metric = "random"         # "loss" or "ub" (pair ranking metric)
+    yen_max_pairs_per_source = 10   # cap per (link,source); None/0 = keep all
+    yen_exhaustive = False      # True for small graphs
+    yen_hop_cutoff = 6          # only used when yen_exhaustive=True
 
     #Early stop controls (all optional)
     stop_attempts = 0     #0 disables attempt‑count stop
@@ -78,6 +81,10 @@ class Config:
     out_dir = Path("outputs")
     make_plots = True #Toggles plot generation
     report_csv = False #Create the csv files
+    
+    save_top_k = 10              # 0 disables
+    save_top_dir = Path("outputs/top_combos")
+    save_failed_sample = 5       # keep at most N failed combos as examples
 
     # Combo-generation controls
     top_k_per_link = 0       # shortlist size per link (None/0 = keep all)
@@ -269,6 +276,38 @@ def combo_overlap_metrics(combo_dict):
         src_links_mean=(len(links)/len(Counter(lk['path']['source'] for lk in links))) if links else 0.0, #average number of links per source
     )
 
+def _per_link_ub_for_combo_entry(lk):
+    # UB for the chosen path of one link (reuses your helper)
+    return per_link_ub_for_chosen_path(lk)
+
+def _flatten_combo_record(rec):
+    """Small, JSON/CSV-safe view of a combo evaluation result."""
+    combo = rec['combo']
+    links = []
+    for lk in combo['combo']:
+        links.append({
+            'link': tuple(lk['link']),
+            'source': lk['path']['source'],
+            'path1': list(lk['path']['path1']),
+            'path2': list(lk['path']['path2']),
+            'y1': float(lk['path'].get('y1', 0.0)),
+            'y2': float(lk['path'].get('y2', 0.0)),
+            'fidelity_limit': float(lk.get('fidelity_limit', 0.5)),
+            'per_link_ub': float(_per_link_ub_for_combo_entry(lk)),
+        })
+    ov = combo_overlap_metrics(combo)
+    return {
+        'path_id': int(combo.get('path_id', -1)),
+        'utility': float(rec.get('utility', float('-inf'))),
+        'ub_combo': float(combo.get('_ub_combo', float('nan'))),
+        'total_loss': float(combo.get('total_loss', float('nan'))),
+        'used_sources': int(rec.get('used_sources', 0)),
+        'routing_ok': bool(rec.get('routing_ok', False)),
+        'overlap': ov,          # overlap metrics bundle
+        'links': links,         # per-link detail
+    }
+
+
 def _build_source_conflict_graph(combo_dict):
     links = combo_dict['combo']
     edges_per_link = []
@@ -341,11 +380,29 @@ def _capacity_ok(sources, counts: dict):
 #==========================
 
 def build_network(cfg: Config):
-    net, users, sources = create_network.create_network(cfg.num_users, cfg.num_sources, cfg.num_edges, cfg.loss_range, cfg.num_channels_per_source, topology=cfg.topology, density=cfg.density, kite_loss_values=cfg.kite_loss_values)
+    net, users, sources = create_network.create_network(
+        cfg.num_users, cfg.num_sources, cfg.num_edges, cfg.loss_range,
+        cfg.num_channels_per_source, topology=cfg.topology, density=cfg.density,
+        kite_loss_values=cfg.kite_loss_values
+    )
     net = create_network.create_links(net, users, cfg.num_links)
-    net = routing.double_dijkstra(net, sources, cfg.tau, cfg.d1, cfg.d2)
-    #attach fidelity limits
-    net = routing.link_info_packaging(net, fidelity_limit=cfg.fidelity_limit, y1 = cfg.y1, y2 = cfg.y2)
+
+    # NEW: choose router
+    if getattr(cfg, "routing_algo", "yen") == "yen":
+        net = routing.double_yen(
+            net, sources,
+            tau=cfg.tau, d1=cfg.d1, d2=cfg.d2,
+            k_per_leg=getattr(cfg, "k_paths_per_leg", 3),
+            metric=getattr(cfg, "yen_metric", "loss"),
+            max_pairs_per_source=getattr(cfg, "yen_max_pairs_per_source", None),
+            exhaustive=getattr(cfg, "yen_exhaustive", False),
+            hop_cutoff=getattr(cfg, "yen_hop_cutoff", None),
+        )
+    else:
+        net = routing.double_dijkstra(net, sources, cfg.tau, cfg.d1, cfg.d2)
+
+    # fidelity limits / optional y1,y2 overrides (unchanged)
+    net = routing.link_info_packaging(net, fidelity_limit=cfg.fidelity_limit, y1=cfg.y1, y2=cfg.y2)
     return net, sources
 
 def _links_per_source(combo_dict):
@@ -380,25 +437,6 @@ def evaluate_combo(combo, sources, cfg: Config):
         res, util = allocate_channels.network_allocation(sources, combo, allocation_type='APOPT', initial_conditions=0.001, verbose = cfg.verbose)
         assignment = routing.check_interference(combo, res, sources)
 
-        # #salvage promising infeasible results
-        # if assignment is None and cfg.enable_salvage:
-        #     ub_est = combo.get('_ub_combo', float('inf'))
-        #     is_good = (np.isfinite(ub_est) and util >= cfg.salvage_trigger_ratio * ub_est)
-        #     if is_good:
-        #         for cap in cfg.salvage_k_caps:
-        #             try:
-        #                 res2, util2 = allocate_channels.network_allocation(sources, combo, allocation_type='APOPT', initial_conditions=0.001, per_link_k_cap=cap, verbose = cfg.verbose)
-        #                 assignment2 = routing.check_interference(combo, res2, sources)
-        #                 if assignment2 is not None:
-        #                     return dict(
-        #                         path_id=combo['path_id'], utility=util2,
-        #                         results=res2, assignment=assignment2, routing_ok=True,
-        #                         combo=combo, total_loss=combo['total_loss'],
-        #                         used_sources=len(res2), salvaged=True, k_cap=cap
-        #                     )
-        #             except Exception:
-        #                 _log_exception("salvage attempt failed", cfg, cap=cap)
-
         return dict(
             path_id=combo['path_id'],
             utility=util,
@@ -423,7 +461,7 @@ def select_best(results):
     if not ok: return None
     return max(ok, key=lambda r: float(r['utility']))
 
-def postprocess_and_report(cfg: Config, net, sources, best, ideal_ub, all_utilities, dashed_limit = None):
+def postprocess_and_report(cfg: Config, net, sources, best, ideal_ub, all_utilities, ok_mask, dashed_limit = None):
     cfg.out_dir.mkdir(exist_ok=True)
     rows, flux_by_source = summarize_best(net, best['combo'], best['results'], best['assignment'])
 
@@ -460,8 +498,13 @@ def postprocess_and_report(cfg: Config, net, sources, best, ideal_ub, all_utilit
 
     if cfg.make_plots:
         ideal_ub_now = ideal_upper_bound_at_fidelity(net)
-        cleaned = [float(u) for u in all_utilities if np.isfinite(u)]
-        plot.utility_comparison(cleaned,float(ideal_ub_now), outfile=str(cfg.out_dir / 'utility_comparison.svg'))
+        plot.utility_comparison(
+            all_utilities,
+            float(ideal_ub_now),
+            ok_mask=ok_mask,  # color failed (False) as orange
+            outfile=str(cfg.out_dir / 'utility_comparison.svg')
+        )
+
 
         #Stacked source allocation, bars, network plot
         freqs_by_link = {tuple(lk['link']): best['assignment'][i] for i, lk in enumerate(best['combo']['combo'])}
@@ -607,6 +650,112 @@ def diagnose_link_utilities(net, rows, best_res, verbose=True):
 #5) Orchestrator
 #==========================
 
+from copy import deepcopy
+import json, os, csv, time
+
+def _run_pipeline_once(cfg):
+    """Builds the network, enumerates combos, evaluates a reasonable batch, and returns a compact result."""
+    t0 = time.perf_counter()
+    net, sources = build_network(cfg)
+
+    # enumerate combos (best-first by sum-UB)
+    stream, ideal_ub = enumerate_and_score_combos(net, sources, cfg)
+
+    # Evaluate a controlled number of combos (serial to keep this helper simple)
+    max_to_check = getattr(cfg, "max_combos", None) or 200
+    results = []
+    count = 0
+    for combo in stream:
+        res = evaluate_combo(combo, sources, cfg)
+        results.append(res)
+        count += 1
+        if count >= max_to_check:
+            break
+
+    best = select_best(results)
+    
+    build_time = time.perf_counter() - t0
+
+    # summarize per-link stats captured by the router
+    per_link_stats = []
+    for i, L in enumerate(net.graph.get('desired_links', [])):
+        st = L.get('path_stats', {}) or {}
+        per_link_stats.append({
+            "i": i,
+            "link": tuple(L.get("link", (None, None))),
+            "num_pairs": int(st.get("num_pairs", 0)),
+            "best_loss": float(st.get("best_loss", float("inf"))),
+            "best_ub": float(st.get("best_ub", float("-inf"))),
+        })
+
+    out = {
+        "utility": float(best['utility']) if best else float('-inf'),
+        "feasible_combos": int(sum(1 for r in results if r.get('routing_ok'))),
+        "conflicts": int(sum(1 for r in results if r.get('routing_ok') is False)),
+        "ideal_ub": float(ideal_ub),
+        "build_time_s": float(build_time),
+        "checked": count,
+        "per_link": per_link_stats,
+        "had_solution": bool(best is not None),
+    }
+    return out, net, best
+
+def compare_routing(cfg, outdir="outputs/compare_routing"):
+    """Run Dijkstra vs Yen on the same network seed and write a small JSON + CSV summary."""
+    os.makedirs(outdir, exist_ok=True)
+    base = deepcopy(cfg)
+
+    # --- Dijkstra
+    dcfg = deepcopy(base)
+    dcfg.routing_algo = "dijkstra"
+    dres, dnet, dbest = _run_pipeline_once(dcfg)
+    dres["router"] = "dijkstra"
+
+    # --- Yen
+    ycfg = deepcopy(base)
+    ycfg.routing_algo = "yen"
+    yres, ynet, ybest = _run_pipeline_once(ycfg)
+    yres["router"] = "yen"
+
+    # Aggregate row for CSV
+    def _avg_num_pairs(per_link):
+        return (sum(p.get("num_pairs", 0) for p in per_link) / max(1, len(per_link)))
+
+    row = {
+        "seed": getattr(base, "seed", None),
+        "links": len(yres.get("per_link", [])),
+        "utility_d": dres["utility"],
+        "utility_y": yres["utility"],
+        "utility_delta": yres["utility"] - dres["utility"],
+        "feasible_combos_d": dres["feasible_combos"],
+        "feasible_combos_y": yres["feasible_combos"],
+        "conflicts_d": dres["conflicts"],
+        "conflicts_y": yres["conflicts"],
+        "build_time_s_d": dres["build_time_s"],
+        "build_time_s_y": yres["build_time_s"],
+        "avg_num_pairs_d": _avg_num_pairs(dres.get("per_link", [])),
+        "avg_num_pairs_y": _avg_num_pairs(yres.get("per_link", [])),
+    }
+
+    # Save artifacts
+    with open(os.path.join(outdir, "last_compare.json"), "w") as f:
+        json.dump({"dijkstra": dres, "yen": yres, "summary": row}, f, indent=2)
+
+    csv_path = os.path.join(outdir, "summary.csv")
+    write_header = not os.path.exists(csv_path)
+    with open(csv_path, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if write_header: w.writeheader()
+        w.writerow(row)
+
+    # Print a one-line summary
+    print(f"[compare] Δutility={row['utility_delta']:+.4f} | "
+          f"avg_pairs D/Y={row['avg_num_pairs_d']:.1f}/{row['avg_num_pairs_y']:.1f} | "
+          f"feasible D/Y={row['feasible_combos_d']}/{row['feasible_combos_y']}")
+
+    return row, (dnet, dbest), (ynet, ybest)
+
+
 def run_pipeline(cfg: Config = Config()):
     t0 = time.time()
     cfg.out_dir.mkdir(exist_ok=True)
@@ -618,6 +767,29 @@ def run_pipeline(cfg: Config = Config()):
 
     # Enumerate & score (streaming)
     stream, ideal_ub = enumerate_and_score_combos(net, sources, cfg)
+
+        # --- Top-K collector (min-heap) ---
+    import heapq, os, json, csv
+    topk = []  # holds tuples (utility, rec_dict)
+    failed_samples = []
+    K = int(getattr(cfg, 'save_top_k', 0) or 0)
+    cfg.save_top_dir.mkdir(parents=True, exist_ok=True)
+
+    def _maybe_record(rec):
+        nonlocal topk, failed_samples, K
+        if rec.get('routing_ok'):
+            util = float(rec.get('utility', float('-inf')))
+            if K > 0:
+                if len(topk) < K:
+                    heapq.heappush(topk, (util, _flatten_combo_record(rec)))
+                else:
+                    if util > topk[0][0]:
+                        heapq.heapreplace(topk, (util, _flatten_combo_record(rec)))
+        else:
+            # keep a tiny sample of fails for reference (optional)
+            M = int(getattr(cfg, 'save_failed_sample', 0) or 0)
+            if M > 0 and len(failed_samples) < M:
+                failed_samples.append(_flatten_combo_record(rec))
 
     # rolling min-loss for loss-window gating
     global_min_loss = [float('inf')]
@@ -655,7 +827,8 @@ def run_pipeline(cfg: Config = Config()):
     successes = 0
     attempts = 0
     all_utilities = []   # collect utilities for utility_comparison plot
-
+    ok_mask = []
+    
     #parallel or sequential evaluation
     if cfg.parallel:
         import os
@@ -758,6 +931,7 @@ def run_pipeline(cfg: Config = Config()):
                     c = inflight.pop(fut)
                     try:
                         res = fut.result()
+                        _maybe_record(res)
                     except Exception as e:
                         res = {'error': str(e)}
 
@@ -768,6 +942,12 @@ def run_pipeline(cfg: Config = Config()):
                             all_utilities.append(float(res['utility']))
                         except Exception:
                             pass
+                        # track feasibility for coloring
+                        try:
+                            ok_mask.append(bool(res.get('routing_ok', False)))
+                        except NameError:
+                            ok_mask = [bool(res.get('routing_ok', False))]
+
 
                     if res.get('routing_ok'):
                         successes += 1
@@ -832,6 +1012,7 @@ def run_pipeline(cfg: Config = Config()):
             # evaluate
             attempts += 1
             res = evaluate_combo(combo, sources, cfg)
+            _maybe_record(res)
 
             if cfg.verbose and 'error' in res:
                 print(f"[evaluate_combo returned error] path_id={res.get('path_id')} :: {res['error']}")
@@ -865,7 +1046,48 @@ def run_pipeline(cfg: Config = Config()):
     log(f"Best utility = {best['utility']:.6f} (path_id={best['path_id']})", cfg=cfg)
 
     #pass sources and all_utilities into reporting
-    postprocess_and_report(cfg, net, sources, best, ideal_ub, all_utilities, dashed_limit=dashed_limit)
+        # --- Save Top-K to JSON and CSV ---
+    if K > 0:
+        topk_sorted = sorted(topk, key=lambda t: t[0], reverse=True)
+        payload = {
+            'ideal_ub': float(ideal_ub),
+            'top_k': [rec for (_, rec) in topk_sorted],
+            'failed_samples': failed_samples
+        }
+        with open(cfg.save_top_dir / 'top_combos.json', 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2)
+
+        # flat CSV summary for quick sorting
+        csv_rows = []
+        for _, rec in topk_sorted:
+            ov = rec['overlap']
+            csv_rows.append({
+                'path_id': rec['path_id'],
+                'utility': rec['utility'],
+                'ub_combo': rec['ub_combo'],
+                'total_loss': rec['total_loss'],
+                'used_sources': rec['used_sources'],
+                'overlap_pairs': ov['overlap_pairs'],
+                'max_edge_load': ov['max_edge_load'],
+                'mean_edge_load': ov['mean_edge_load'],
+                'total_hops': ov['total_hops'],
+                'max_hops': ov['max_hops'],
+                'src_unique': ov['src_unique'],
+                'src_links_max': ov['src_links_max'],
+                'src_links_mean': ov['src_links_mean'],
+            })
+            fieldnames = [
+                'path_id','utility','ub_combo','total_loss','used_sources',
+                'overlap_pairs','max_edge_load','mean_edge_load',
+                'total_hops','max_hops','src_unique','src_links_max','src_links_mean'
+            ]
+            with open(cfg.save_top_dir / 'top_combos.csv', 'w', newline='', encoding='utf-8') as f:
+                w = csv.DictWriter(f, fieldnames=fieldnames)
+                w.writeheader()
+                if csv_rows:
+                    w.writerows(csv_rows)
+
+    postprocess_and_report(cfg, net, sources, best, ideal_ub, all_utilities, ok_mask = ok_mask, dashed_limit=dashed_limit)
 
     log(f"Done in {time.time()-t0:.2f}s.", cfg=cfg)
     if not cfg.verbose:
@@ -878,3 +1100,37 @@ def run_pipeline(cfg: Config = Config()):
 
 if __name__ == "__main__":
     run_pipeline(Config())
+
+
+
+    # #Yen Comparison configuration. This configuration fails at Dijkstra
+    # cfg = Config()
+    # num_users = 7
+    # num_sources = 2
+    # num_edges = 10000
+    # num_links = 4
+    # loss_range = (0, 3.0) #(12.0, 32.0)
+    # topology = "dense"   #'ring' | 'dense' | 'star' | 'kite' | None
+    # density = 0.25               #used when topology='dense'
+    # num_channels_per_source = [10, 12]
+    # fidelity_limit = [0.9, 0.88, 0.89, 0.94]
+    # tau = 1e-9
+    # d1 = 100.0
+    # d2 = 3500.0
+    # y1 = None #None => default in create_network
+    # y2 = None #None => default in create_network
+    # routing_algo = "yen"        # "yen" or "dijkstra"
+    # k_paths_per_leg = 4         # Yen: how many alternatives per user→source leg
+    # yen_metric = "ub"         # "loss" or "ub" (pair ranking metric)
+    # yen_max_pairs_per_source = 10   # cap per (link,source); None/0 = keep all
+    # yen_exhaustive = False      # True for small graphs
+    # yen_hop_cutoff = 6          # only used when yen_exhaustive=True
+    # stop_attempts = 0     #0 disables attempt‑count stop
+    # stop_successes = 0    #0 disables 'N successes' stop
+    # loss_multiplier_stop = 1000000  #large => disabled
+    # top_k_per_link = 0       # shortlist size per link (None/0 = keep all)
+    # shortlist_by = "ub"      # "ub" or "loss"
+    # max_combos = None # hard cap on number of combos pulled
+    # time_limit_s = None  # wall-clock budget for combo generation
+    # verbose = False #For printing terminal messages
+    # compare_routing(cfg)

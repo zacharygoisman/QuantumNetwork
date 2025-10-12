@@ -1,6 +1,7 @@
 import networkx as nx
 import numpy as np
 import itertools
+from itertools import islice
 from ortools.sat.python import cp_model
 from collections import defaultdict
 import heapq
@@ -18,6 +19,24 @@ class _PathOpt:
     y1: float
     y2: float
     ub: float  # per-link UB if this path were chosen
+
+def _path_list_stats(cand_records, fidelity_floor=0.5):
+    if not cand_records:
+        return {"num_pairs": 0, "best_loss": float("inf"), "best_ub": float("-inf")}
+    best_loss = min(float(p.get("total_loss", float("inf"))) for p in cand_records)
+    # If ub wasn't precomputed, derive it from y1,y2 with your per-link UB helper.
+    # Note: _per_link_path_ub is already defined in this module.
+    try:
+        best_ub = max(
+            float(p.get("ub", _per_link_path_ub(max(fidelity_floor, 0.5),
+                                                float(p.get("y1", 0.0)),
+                                                float(p.get("y2", 0.0)))))
+            for p in cand_records
+        )
+    except Exception:
+        best_ub = float("-inf")
+    return {"num_pairs": len(cand_records), "best_loss": best_loss, "best_ub": best_ub}
+
 
 def _per_link_path_ub(F_min, y1, y2):
     """Tight-ish per-path UB for this link choice (reuses your per_link_ub_value)."""
@@ -106,8 +125,11 @@ def prepare_path_sets(network, *, top_k_per_link=8, shortlist_by="ub"):
         # shortlist
         if shortlist_by == "loss":
             opts.sort(key=lambda o: o.total_loss)                # ascending loss
-        else:
+        elif shortlist_by == "ub":
             opts.sort(key=lambda o: o.ub, reverse=True)          # descending UB
+        elif shortlist_by == "random":
+            import random
+            random.shuffle(opts)                                # random order
         out.append(opts[:top_k_per_link] if top_k_per_link else opts)
     return out
 
@@ -228,12 +250,118 @@ def double_dijkstra(network, sources, tau = 0, d1 = 0, d2 = 0):
             y2_value = tau * d2 * 10 ** (loss_u2 / 10) #Calculate y2 for path. Tau * dark counts / efficiency
             best_path_info.append({'source':source,'path1':path_u1,'path2':path_u2,'total_loss':total_loss, 'user1_loss':loss_u1, 'y1': y1_value, 'user2_loss':loss_u2, 'y2': y2_value}) #Path info packaging
 
-        network.graph['desired_links'][link_index]['paths'] = best_path_info #Store best paths into network
+        network.graph['desired_links'][link_index]['paths'] = best_path_info
+        network.graph['desired_links'][link_index]['path_stats'] = _path_list_stats(
+            best_path_info, fidelity_floor=link_entry.get('fidelity_limit', 0.5)
+)
+
 
         if not best_path_info: #If no best sources for a link then output as a warning
             print(f"No common sources for link {u1} -- {u2}")
 
     return network
+
+
+
+def _edge_loss_sum(G, path):
+    return sum(G[u][v].get('loss', 1.0) for u, v in zip(path, path[1:]))
+
+def _k_shortest_simple_paths(G, s, t, k, weight="loss"):
+    """
+    Return up to k simple paths from s to t ordered by total weight.
+    Uses NetworkX's Yen implementation under the hood.
+    """
+    try:
+        gen = nx.shortest_simple_paths(G, s, t, weight=weight)
+        return list(islice(gen, int(k))) if (k and k > 0) else []
+    except nx.NetworkXNoPath:
+        return []
+
+def double_yen(
+    network,
+    sources,
+    tau=0.0, d1=0.0, d2=0.0,
+    k_per_leg=3,
+    metric="loss",               # "loss" | "ub"
+    max_pairs_per_source=None,   # cap candidate pairs per (link, source)
+    exhaustive=False,            # use all_simple_paths for small nets
+    hop_cutoff=None              # cutoff for all_simple_paths if exhaustive=True
+):
+    """
+    Populate network.graph['desired_links'][i]['paths'] with many candidate
+    (u1->S, u2->S) path pairs per source using Yen's k-shortest (or exhaustive).
+
+    Each stored record mirrors what the rest of your pipeline expects:
+      {'source','path1','path2','total_loss','user1_loss','y1','user2_loss','y2'}
+    """
+    links = network.graph['desired_links']
+
+    for link_index, L in enumerate(links):
+        u1, u2 = L['link']
+        cand_records = []
+
+        for S in sources:
+            # 1) get candidates for each leg
+            if exhaustive:
+                # for small graphs: enumerate simple paths up to hop_cutoff
+                try:
+                    p1s = list(nx.all_simple_paths(network, u1, S, cutoff=hop_cutoff))
+                    p2s = list(nx.all_simple_paths(network, u2, S, cutoff=hop_cutoff))
+                except nx.NetworkXNoPath:
+                    continue
+            else:
+                p1s = _k_shortest_simple_paths(network, u1, S, k_per_leg, weight="loss")
+                p2s = _k_shortest_simple_paths(network, u2, S, k_per_leg, weight="loss")
+
+            if not p1s or not p2s:
+                continue
+
+            # 2) pair the legs and score each pair
+            scored_pairs = []
+            F_req = float(max(0.5, L.get('fidelity_limit', 0.5)))  # clamp to ≥0.5, matches your UB logic
+            for p1, p2 in itertools.product(p1s, p2s):
+                loss1 = _edge_loss_sum(network, p1)
+                loss2 = _edge_loss_sum(network, p2)
+                total_loss = loss1 + loss2
+                # y-values from losses (same as double_dijkstra)
+                y1_val = tau * d1 * 10 ** (loss1 / 10.0)
+                y2_val = tau * d2 * 10 ** (loss2 / 10.0)
+
+                if metric == "ub":
+                    # re-use your tight per-path UB (already in this module)
+                    ub_val = _per_link_path_ub(F_req, y1_val, y2_val)
+                    score = -ub_val  # larger UB is better → sort ascending by negative
+                else:
+                    # default: prefer lower total loss
+                    score = total_loss
+
+                scored_pairs.append((score, {
+                    'source': S,
+                    'path1': p1,
+                    'path2': p2,
+                    'total_loss': float(total_loss),
+                    'user1_loss': float(loss1),
+                    'y1': float(y1_val),
+                    'user2_loss': float(loss2),
+                    'y2': float(y2_val),
+                }))
+
+            # 3) keep best pairs per source (stable & cheap)
+            scored_pairs.sort(key=lambda t: t[0])
+            keep = scored_pairs if max_pairs_per_source in (None, 0) else scored_pairs[:max_pairs_per_source]
+            cand_records.extend([rec for _, rec in keep])
+
+        # store back exactly where double_dijkstra stored one record
+        network.graph['desired_links'][link_index]['paths'] = cand_records
+        network.graph['desired_links'][link_index]['path_stats'] = _path_list_stats(
+            cand_records, fidelity_floor=L.get('fidelity_limit', 0.5)
+        )
+
+        if not cand_records:
+            print(f"[routing] No common sources found for link {u1} -- {u2}")
+
+    return network
+
 
 #Adds y1, y2, and fidelity limit information into network object's link information
 def link_info_packaging(network, fidelity_limit, y1 = None, y2 = None):

@@ -108,45 +108,106 @@ mpl.rcParams.update({
 })
 
 def plot_link_utility_bars(rows, start_color_index=0, outfile='outputs/link_utility_bars.svg'):
-    """
-    rows: list of dicts from summarize_best(); each row must have:
-          'link', 'link_utility', 'ub_utility'
-    Bar outline (black) = max per-link utility; fill = actual utility.
-    """
-
     if not rows:
         return
 
     links = [r['link'] for r in rows]
-    ub = np.array([float(r['ub_utility']) if r.get('ub_utility') is not None else np.nan for r in rows])
-    ac = np.array([float(r['link_utility']) for r in rows])
+    ub = np.array([float(r['ub_utility']) if r.get('ub_utility') is not None else np.nan for r in rows], dtype=float)
+    ac = np.array([float(r['link_utility']) for r in rows], dtype=float)
 
     x = np.arange(len(links))
     w = 0.72
-    colors = gem_colors(len(links), start=start_color_index)
+    _ = gem_colors(len(links), start=start_color_index)
+
+    # # Compute span ignoring NaNs in ub
+    # data = np.concatenate([ac, ub[np.isfinite(ub)]])
+    # data_min, data_max = float(np.min(data)), float(np.max(data))
+    # span = data_max - data_min
+
+    # fixed_span_mode = span < 1.0  # your requested behavior
+
+    # def bottoms_and_heights(vals, y_bottom_global=None):
+    #     vals = np.asarray(vals, dtype=float)
+    #     if fixed_span_mode:
+    #         # negatives: 1.0 high, centered on the value
+    #         bottoms = np.where(vals >= 0, 0.0, vals - 0.5)
+    #         heights = np.where(vals >= 0, vals, 1.0)
+    #     else:
+    #         # regular behavior: negatives grow up from the global bottom
+    #         bottoms = np.where(vals >= 0, 0.0, y_bottom_global)
+    #         heights = np.where(vals >= 0, vals, vals - y_bottom_global)
+    #     return bottoms, heights
+
+    # if fixed_span_mode:
+    #     # Per-bar bottoms; compute after we know bottoms/heights
+    #     ub_btm, ub_h = bottoms_and_heights(ub)
+    #     ac_btm, ac_h = bottoms_and_heights(ac)
+    #     # Determine y-lims from all bottoms/tops (+ zero)
+    #     tops = []
+    #     if np.any(np.isfinite(ub_h)):
+    #         tops.append(ub_btm + np.nan_to_num(ub_h, nan=0.0))
+    #     tops.append(ac_btm + ac_h)
+    #     y_min_plot = min(0.0, np.nanmin(np.concatenate([ub_btm[np.isfinite(ub_btm)], ac_btm])))
+    #     y_max_plot = max(0.0, np.nanmax(np.concatenate(tops)))
+    # else:
+    #     # Global bottom below the smallest value
+    #     pad = 0.05 * max(span, 1e-9)
+    #     y_bottom_global = min(0.0, data_min - pad)
+    #     ub_btm, ub_h = bottoms_and_heights(ub, y_bottom_global=y_bottom_global)
+    #     ac_btm, ac_h = bottoms_and_heights(ac, y_bottom_global=y_bottom_global)
+    #     y_min_plot = min(0.0, y_bottom_global)
+    #     y_max_plot = max(0.0, data_max + pad)
+
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    #Max bars as hollow boxes
-    ax.bar(x, ub, width=w, facecolor='white', edgecolor='black', linewidth=1.5, label='Max per-link utility')
 
-    #Actual bars as filled overlays (all gem blue)
+    # --- Compute global y limits centered on 0 ---
+    finite_ub = ub[np.isfinite(ub)]
+    data_min = float(np.min(np.concatenate([ac, finite_ub])) if finite_ub.size else np.min(ac))
+    data_max = float(np.max(np.concatenate([ac, finite_ub])) if finite_ub.size else np.max(ac))
+
+    y_bottom = min(0.0, data_min)      # center around zero by default
+    y_top    = max(0.0, data_max)
+
+    # If any bar is negative, extend the bottom by 1
+    if data_min < 0.0:
+        y_bottom -= 1.0
+
+    # --- Bars start from the bottom of the axes ---
+    ac_bottoms = np.full_like(ac, y_bottom, dtype=float)
+    ac_heights = ac - y_bottom
+
+    ub_bottoms = np.full_like(ub, y_bottom, dtype=float)
+    ub_heights = ub - y_bottom
+
+    # Draw bars
+    ax.bar(x, ub_heights, width=w, bottom=ub_bottoms, facecolor='white',
+        edgecolor='black', linewidth=1.5, label='Max per-link utility')
+
     gem_blue = '#0072BD'
-    ax.bar(x, ac, width=w*0.82, color=gem_blue, edgecolor='black', linewidth=1.0, label='Actual utility')
+    ax.bar(x, ac_heights, width=w*0.82, bottom=ac_bottoms, color=gem_blue,
+        edgecolor='black', linewidth=1.0, label='Actual utility')
+
+    # y-limits with a tiny padding
+    pad = 0.02 * max(1.0, y_top - y_bottom)
+    ax.set_ylim(y_bottom - pad, y_top + pad)
+
 
     ax.set_xticks(x)
     ax.set_xticklabels(links, rotation=30, ha='right')
     ax.set_xlabel('Link')
     ax.set_ylabel('Utility (log₁₀ units)')
     ax.legend()
-
-    #ticks: inside, all sides
     ax.tick_params(axis='both', which='both', direction='in', top=True, right=True, length=6, width=1)
 
     plt.tight_layout()
     plt.savefig(outfile, dpi=300)
     plt.close()
 
-def utility_comparison(all_utilities, dashed_limit, outfile='outputs/utility_comparison.svg'):
+
+
+
+def utility_comparison(all_utilities, dashed_limit, ok_mask=None, outfile='outputs/utility_comparison.svg'):
 
     if not all_utilities:
         print("[plot] all_utilities empty – skipping utility_comparison")
@@ -156,7 +217,17 @@ def utility_comparison(all_utilities, dashed_limit, outfile='outputs/utility_com
     x = np.arange(1, len(y)+1)
 
     fig, ax = plt.subplots(figsize=(9, 5.5))
-    ax.scatter(x, y, marker='o', linewidth=1.5, s=3, label='Path Combination')
+    if ok_mask is not None and len(ok_mask) == len(y):
+        ok_mask_arr = np.array(ok_mask, dtype=bool)
+        xf, yf = x[~ok_mask_arr], y[~ok_mask_arr]   # failed → orange
+        xo, yo = x[ ok_mask_arr], y[ ok_mask_arr]   # feasible
+        if xf.size:
+            ax.scatter(xf, yf, marker='o', linewidth=1.0, s=6, label='Failed', color='tab:orange')
+        if xo.size:
+            ax.scatter(xo, yo, marker='o', linewidth=1.0, s=6, label='Feasible')
+    else:
+        ax.scatter(x, y, marker='o', linewidth=1.5, s=3, label='Path Combination')
+
 
     ax.set_xlabel('Path Combination')
     ax.set_ylabel('Utility')
