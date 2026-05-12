@@ -8,6 +8,7 @@ outputs/
 *.png
 *.jpg
 *.pdf
+*.svg
 
 # Ignore logs
 *.log
