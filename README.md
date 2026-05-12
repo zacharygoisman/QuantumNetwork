@@ -1,8 +1,8 @@
 # QuantumNetwork
-Research project for optimizing quantum network routing and resource allocation, with the eventual hope of creating a physical system.
+Research project for optimizing quantum network routing and spectrum allocation, with the eventual hope of creating a physical system.
 
 We have two goals at the moment:
-1. Optimize channel allocation within a source to all lightpaths using said source. (Resource Allocation)
+1. Optimize channel allocation within a source to all lightpaths using said source. (Spectrum Allocation)
 2. Find the best source and route for each pair of users. (Routing)
 
 This may be expanded on later when considering a dynamic network or a physical system.
