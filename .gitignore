@@ -19,8 +19,6 @@ outputs/
 # Ignore environments
 env/
 .venv/
-__pycache__/
-*.pyc
 
 # Ignore other
 *.txt
