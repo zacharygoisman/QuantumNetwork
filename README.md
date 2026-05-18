@@ -89,3 +89,40 @@ The goal is to maximize the chosen definition of network utility $\cU$ subject t
 \item \textbf{Contention-free distribution:} $\cK_{\ell_\alpha} \cap \cK_{\ell'_\beta}=\emptyset$ for all $\ell\neq\ell'$ and $\alpha,\beta\in\{A,B\}$ whose paths $\cP_{\ell_\alpha}$ and $\cP_{\ell'_\beta}$ share an edge.
 \end{enumerate}
 \end{enumerate}
+
+## Setup Instructions
+
+This project uses Python dependencies listed in `requirements.txt`. To install them, first create and activate a virtual environment.
+
+### 1. Create a virtual environment
+
+Run the following command from the project directory:
+
+Windows:
+python -m venv env
+
+Mac/Linux:
+python3 -m venv env
+
+### 2. Activate the virtual environment
+Windows Command Prompt
+env\Scripts\activate
+
+Windows PowerShell
+.\env\Scripts\Activate.ps1
+
+If PowerShell gives an error saying that running scripts is disabled on this system, run:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+Mac/Linux
+source env/bin/activate
+
+### 3. Install the required packages
+
+After the virtual environment is activated, install the required libraries using:
+
+Windows
+pip install -r requirements.txt
+
+Mac/Linux
+python3 -m pip install -r requirements.txt
