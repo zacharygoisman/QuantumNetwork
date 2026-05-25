@@ -78,35 +78,35 @@ Lastly, we use the CP-SAT solver to check if our network has interfering frequen
 
 We summarize our complete global RSA problem formally as the following:
 
-1. Begin with a graph consisting of $S+U$ vertices split into two types: $S$ sources $\\{s_1,\ldots,s_S\\}=\mathcal{V}_S$ and $U$ users $\\{u_1,\ldots,u_U\\}=\mathcal{V}_U$. These vertices are connected by $E$ undirected edges $\mathcal{E} = \\{e_1,\ldots,e_E\\} \subseteq \\{(v,w):v,w \in \mathcal{V}_S \cup \mathcal{V}_U,v \neq w \\}$, each of which is characterized by an efficiency parameter $h_{e}\in(0,1]$.
+1. Begin with a graph consisting of $S+U$ vertices split into two types: $S$ sources $\\{s_1,\ldots,s_S\\}=V_S$ and $U$ users $\\{u_1,\ldots,u_U\\}=V_U$. These vertices are connected by $E$ undirected edges $E = \\{e_1,\ldots,e_E\\} \subseteq \\{(v,w):v,w \in V_S \cup V_U,v \neq w \\}$, each of which is characterized by an efficiency parameter $h_{e}\in(0,1]$.
 
-2. The users wish to establish a maximum of $L\leq \lfloor U/2\rfloor$ pairwise, monogamous links described by the set $\\{(u_{1_A},u_{1_B}),\ldots,(u_{L_A},u_{L_B})\\}=\mathcal{L}$, where each link $\ell\in[L]$ possesses an "Alice" $u_{\ell_A}$ and "Bob" $u_{\ell_B}$ and requests entanglement of fidelity exceeding some threshold $\mathcal{F}_\ell\geq f_\ell$.
+2. The users wish to establish a maximum of $L\leq \lfloor U/2\rfloor$ pairwise, monogamous links described by the set $\\{(u_{1_A},u_{1_B}),\ldots,(u_{L_A},u_{L_B})\\}=L$, where each link $\ell\in[L]$ possesses an "Alice" $u_{\ell_A}$ and "Bob" $u_{\ell_B}$ and requests entanglement of fidelity exceeding some threshold $F_\ell\geq f_\ell$.
 
-3. Each source $s_m$ ($m\in[S]$) possesses $K$ pairs of entangled frequency bins $\mathcal{K}=\\{k_{\pm 1},\ldots,k_{\pm K}\\}$, each produced at the same flux $\mu_m$. Under this definition, $|\mathcal{K}|=2K$. The set of links serviced by source $s_m$ is denoted by $\mathcal{L}_m\subset \mathcal{L}$.
+3. Each source $s_m$ ($m\in[S]$) possesses $K$ pairs of entangled frequency bins $K=\\{k_{\pm 1},\ldots,k_{\pm K}\\}$, each produced at the same flux $\mu_m$. Under this definition, $|K|=2K$. The set of links serviced by source $s_m$ is denoted by $L_m\subset L$.
 
 4. The quantum RSA problem seeks to determine the following:
    
    a. Channel flux value $\mu_m$ for each source $m\in[S]$.
    
-   b. Source assignment $\ell_S\in[S]$ and lightpaths to each user: let $\mathcal{P}_{\ell_A}\subseteq\mathcal{E}$ be the set of edges comprising a path from $s_{\ell_S}$ to $u_{\ell_A}$, and let $\mathcal{P}_{\ell_B}\subseteq\mathcal{E}$ be the set of edges comprising a path from $s_{\ell_S}$ to $u_{\ell_B}$, for each link $\ell\in[L]$. These lightpaths have efficiencies:
+   b. Source assignment $\ell_S\in[S]$ and lightpaths to each user: let $P_{\ell_A}\subseteq E$ be the set of edges comprising a path from $s_{\ell_S}$ to $u_{\ell_A}$, and let $P_{\ell_B}\subseteq E$ be the set of edges comprising a path from $s_{\ell_S}$ to $u_{\ell_B}$, for each link $\ell\in[L]$. These lightpaths have efficiencies:
    
-   $$\eta_{\ell_A}=\prod_{e\in \mathcal{P}_{\ell_A}} h_e \quad \text{and} \quad \eta_{\ell_B}=\prod_{e\in \mathcal{P}_{\ell_B}} h_e$$
+   $$\eta_{\ell_A}=\prod_{e\in P_{\ell_A}} h_e \quad \text{and} \quad \eta_{\ell_B}=\prod_{e\in P_{\ell_B}} h_e$$
    
-   c. Spectral assignment for each link $\ell\in[L]$, where $\mathcal{K}_{\ell_A}\subset\mathcal{K}$ bins are assigned to Alice and $\mathcal{K}_{\ell_B}\subset\mathcal{K}$ to Bob, which are energy-matched: i.e., for every $k_n\in\mathcal{K}_{\ell_A}$, it must be the case that $k_{-n}\in\mathcal{K}_{\ell_B}$; hence $|\mathcal{K}_{\ell_A}|=|\mathcal{K}_{\ell_B}|\equiv K_\ell$.
+   c. Spectral assignment for each link $\ell\in[L]$, where $K_{\ell_A}\subset K$ bins are assigned to Alice and $K_{\ell_B}\subset K$ to Bob, which are energy-matched: i.e., for every $k_n\in K_{\ell_A}$, it must be the case that $k_{-n}\in K_{\ell_B}$; hence $|K_{\ell_A}|=|K_{\ell_B}|\equiv K_\ell$.
 
-The goal is to maximize the chosen definition of network utility $\mathcal{U}$ subject to the following constraints:
+The goal is to maximize the chosen definition of network utility $U$ subject to the following constraints:
 
 **Constraints:**
 
 $$
 \begin{aligned}
-\text{(C1) Fidelity:} \quad & \mathcal{F}_\ell\geq f_\ell \quad \forall \; \ell\in[L] \\[0.5em]
-\text{(C2) Frequency-bin availability:} \quad & \sum_{(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m} K_\ell \leq K \quad \forall \; m\in[S] \\[0.5em]
-\text{(C3) Contention-free distribution:} \quad & \mathcal{K}_{\ell_\alpha} \cap \mathcal{K}_{\ell'_\beta}=\emptyset \quad \forall \; \ell\neq\ell', \; \alpha,\beta\in\\{A,B\\}
+\text{(C1) Fidelity:} \quad & F_\ell\geq f_\ell \quad \forall \; \ell\in[L] \\[0.5em]
+\text{(C2) Frequency-bin availability:} \quad & \sum_{(u_{\ell_A},u_{\ell_B})\in L_m} K_\ell \leq K \quad \forall \; m\in[S] \\[0.5em]
+\text{(C3) Contention-free distribution:} \quad & K_{\ell_\alpha} \cap K_{\ell'_\beta}=\emptyset \quad \forall \; \ell\neq\ell', \; \alpha,\beta\in\\{A,B\\}
 \end{aligned}
 $$
 
-where paths $\mathcal{P}_{\ell_\alpha}$ and $\mathcal{P}_{\ell'_\beta}$ share an edge for constraint (C3).
+where paths $P_{\ell_\alpha}$ and $P_{\ell'_\beta}$ share an edge for constraint (C3).
 
 ## Setup Instructions
 
