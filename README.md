@@ -27,13 +27,13 @@ These end up simplifying the state fidelity and total coincidence rate equations
 **State Fidelity:**
 
 $$
-\mathcal{F}_\ell = \frac{1}{4}\left[ 1 + \frac{3\mu_{\ell_S} \tau K_\ell}{\mu_{\ell_S} \tau K_\ell + \left(\mu_{\ell_S} \tau K_\ell + \frac{2\tau d_{\ell_A}}{\eta_{\ell_A}}\right)\left(\mu_{\ell_S} \tau K_\ell + \frac{2\tau d_{\ell_B}}{\eta_{\ell_B}}\right)} \right]
+\mathcal{F}_\ell = \frac{1}{4}\left[ 1 + \frac{3\mu_{m_\ell} \tau K_\ell}{\mu_{m_\ell} \tau K_\ell + \left(\mu_{m_\ell} \tau K_\ell + \frac{2\tau d_{A_\ell}}{\eta_{A_\ell}}\right)\left(\mu_{m_\ell} \tau K_\ell + \frac{2\tau d_{B_\ell}}{\eta_{B_\ell}}\right)} \right]
 $$
 
 **Total Coincidence Rate:**
 
 $$
-\mathcal{R}_\ell = \mu_{\ell_S}\tau K_\ell + \left(\mu_{\ell_S} \tau K_\ell + \frac{2\tau d_{\ell_A}}{\eta_{\ell_A}}\right)\left(\mu_{\ell_S} \tau K_\ell + \frac{2\tau d_{\ell_B}}{\eta_{\ell_B}}\right)
+\mathcal{R}_\ell = \mu_{m_\ell}\tau K_\ell + \left(\mu_{m_\ell} \tau K_\ell + \frac{2\tau d_{A_\ell}}{\eta_{A_\ell}}\right)\left(\mu_{m_\ell} \tau K_\ell + \frac{2\tau d_{B_\ell}}{\eta_{B_\ell}}\right)
 $$
 
 We also follow [G. Vardoyan and S. Wehner, 2023 IEEE Int. Conf. Quantum Comp. Eng. (QCE), vol. 01 (2023), pp. 1238–1248.] by setting utility to be the sum of the log of the rates of each link, in order to ensure weaker links are not left behind by the optimizer. This utility equation is for each source and is added up for all sources to get the total network utility.
@@ -41,7 +41,7 @@ We also follow [G. Vardoyan and S. Wehner, 2023 IEEE Int. Conf. Quantum Comp. En
 **Network Utility:**
 
 $$
-\mathcal{U}_m = \sum_{(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m} \log_{10}\mathcal{R}_\ell
+\mathcal{U}_m = \sum_{(u_{A_\ell},u_{B_\ell})\in\mathcal{L}_m} \log_{10}\mathcal{R}_\ell
 $$
 
 Since we want to maximize the utility such that fidelity is above a fidelity threshold and that there are enough channels from the source, we can write this problem as a MINLP problem.
@@ -56,8 +56,8 @@ $$
 
 $$
 \begin{aligned}
-\mathcal{F}_\ell &\ge f_\ell \qquad \forall\;(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m \\[0.5em]
-\sum_{\ell} K_\ell &\le K \qquad \forall\;(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m
+\mathcal{F}_\ell &\ge f_\ell \qquad \forall\;(u_{A_\ell},u_{B_\ell})\in\mathcal{L}_m \\[0.5em]
+\sum_{\ell} K_\ell &\le K \qquad \forall\;(u_{A_\ell},u_{B_\ell})\in\mathcal{L}_m
 \end{aligned}
 $$
 
