@@ -49,15 +49,15 @@ Since we want to maximize the utility such that fidelity is above a fidelity thr
 **Optimization Problem:**
 
 $$
-(\hat{\mu}_m,\{\hat{K}_\ell\}) = \argmax_{\mu_m, \{K_\ell\}} \mathcal{U}_m
+(\hat{\mu}_m,\{\hat{K}_\ell\}) = \underset{\mu_m, \{K_\ell\}}{\mathrm{argmax}} \; \mathcal{U}_m
 $$
 
 **Subject to constraints:**
 
 $$
 \begin{aligned}
-\mathcal{F}_\ell &\ge f_\ell \qquad \forall\;(u_{A_\ell},u_{B_\ell})\in\mathcal{L}_m \\[0.5em]
-\sum_{\ell} K_\ell &\le K \qquad \forall\;(u_{A_\ell},u_{B_\ell})\in\mathcal{L}_m
+\mathcal{F}_\ell &\ge f_\ell \qquad 
+\sum_{\ell} K_\ell \le K \qquad \forall\;(u_{A_\ell},u_{B_\ell})\in\mathcal{L}_m
 \end{aligned}
 $$
 
