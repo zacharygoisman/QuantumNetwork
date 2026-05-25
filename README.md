@@ -13,19 +13,24 @@ For simplicity, we restrict our topologies to have two types of nodes: sources a
 **How does this system work?**  
 After generating the topology, the pipeline has three phases to determine optimal routing and allocation. These are routing (using Double Yen), spectrum allocation (using APOPT), and frequency scheduling (using CP-SAT).
 
-
 **Routing**
-
+After collecting network information for the desired links, the pipeline generates the N lowest loss paths for each source to user, using Yen's algorithm for both sides of the link (hence the "Double Yen"). With these, it can find the lowest loss paths for each pair of users to reach every source. Ultimately, this will determine the combination of paths for all links that has the lowest loss. This order is the default order that the pipeline will run potential routing solutions for the next two phases.
 
 **Spectrum Allocation**
+To determine the best allocation of channels for each source used from the previous phase's combination, we need to determine a solution to the Entangled Flux Allocation problem. We use these three assumptions to focus on the RSA relevant features, as additional constraints can be added afterwards. These assumptions are:
+1. Users are entangled with only one other
+2. Identical quantum states are produced in all frequency bins
+3. Channel distortion effects are fully compensated
 
-<<<<<<< Updated upstream
-=======
 These end up simplifying the state fidelity and total coincidence rate equations to be as follows:
+
+**State Fidelity:**
 
 $$
 \mathcal{F}_\ell = \frac{1}{4}\left[ 1 + \frac{3\mu_{\ell_S} \tau K_\ell}{\mu_{\ell_S} \tau K_\ell + \left(\mu_{\ell_S} \tau K_\ell + \frac{2\tau d_{\ell_A}}{\eta_{\ell_A}}\right)\left(\mu_{\ell_S} \tau K_\ell + \frac{2\tau d_{\ell_B}}{\eta_{\ell_B}}\right)} \right]
 $$
+
+**Total Coincidence Rate:**
 
 $$
 \mathcal{R}_\ell = \mu_{\ell_S}\tau K_\ell + \left(\mu_{\ell_S} \tau K_\ell + \frac{2\tau d_{\ell_A}}{\eta_{\ell_A}}\right)\left(\mu_{\ell_S} \tau K_\ell + \frac{2\tau d_{\ell_B}}{\eta_{\ell_B}}\right)
@@ -33,32 +38,36 @@ $$
 
 We also follow [G. Vardoyan and S. Wehner, 2023 IEEE Int. Conf. Quantum Comp. Eng. (QCE), vol. 01 (2023), pp. 1238–1248.] by setting utility to be the sum of the log of the rates of each link, in order to ensure weaker links are not left behind by the optimizer. This utility equation is for each source and is added up for all sources to get the total network utility.
 
+**Network Utility:**
+
 $$
 \mathcal{U}_m = \sum_{(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m} \log_{10}\mathcal{R}_\ell
 $$
 
 Since we want to maximize the utility such that fidelity is above a fidelity threshold and that there are enough channels from the source, we can write this problem as a MINLP problem.
 
+**Optimization Problem:**
+
 $$
 (\hat{\mu}_m,\{\hat{K}_\ell\}) = \argmax_{\mu_m, \{K_\ell\}} \mathcal{U}_m
 $$
 
-subject to the constraints
+**Subject to constraints:**
 
 $$
-\mathcal{F}_\ell \ge f_\ell \qquad\text{and}\qquad \sum_{\ell} K_\ell \le K \qquad \forall\;(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m
+\begin{aligned}
+\mathcal{F}_\ell &\ge f_\ell \qquad \forall\;(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m \\[0.5em]
+\sum_{\ell} K_\ell &\le K \qquad \forall\;(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m
+\end{aligned}
 $$
 
 where $\mu_m\in(0,\infty)$ and $K_\ell\in\mathbb{N}_0$. 
 
 
 In the pipeline, this MINLP problem is solved with the APOPT solver which splits the larger problem into simpler NLP subproblems. APOPT determines the frequency channel allocation very quickly, enabling the pipeline to be able to run many times.
->>>>>>> Stashed changes
 
 **Frequency Scheduling**
-Lastly, we use the CP-SAT solver to check if our network has interfering frequency channels. This algorithm is very efficient at scheduling due to its ability to elliminate combinations and quickly backtrack. If we are unable to find a solution, the pipeline backtracks to the next best combination we found in the routing phase.
-
-
+Lastly, we use the CP-SAT solver to check if our network has interfering frequency channels. This algorithm is very efficient at scheduling due to its ability to eliminate combinations and quickly backtrack. If we are unable to find a solution, the pipeline backtracks to the next best combination we found in the routing phase.
 
 
 
@@ -84,20 +93,17 @@ We summarize our complete global RSA problem formally as the following:
 
 The goal is to maximize the chosen definition of network utility $\mathcal{U}$ subject to the following constraints:
 
-<<<<<<< Updated upstream
-The goal is to maximize the chosen definition of network utility $\cU$ subject to the following constraints:
-\begin{enumerate}[label=(C\arabic*)]
-\item \textbf{Fidelity:} $\cF_\ell\geq f_\ell \; \forall \; \ell\in[L]$.
-\item \textbf{Frequency-bin availability:} $\sum_{(u_{\ell_A},u_{\ell_B})\in\cL_m} K_\ell \leq K \; \forall \; m\in[S]$.
-\item \textbf{Contention-free distribution:} $\cK_{\ell_\alpha} \cap \cK_{\ell'_\beta}=\emptyset$ for all $\ell\neq\ell'$ and $\alpha,\beta\in\{A,B\}$ whose paths $\cP_{\ell_\alpha}$ and $\cP_{\ell'_\beta}$ share an edge.
-\end{enumerate}
-\end{enumerate}
-=======
-**(C1) Fidelity:** $\mathcal{F}_\ell\geq f_\ell \; \forall \; \ell\in[L]$
+**Constraints:**
 
-**(C2) Frequency-bin availability:** $\sum_{(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m} K_\ell \leq K \; \forall \; m\in[S]$
+$$
+\begin{aligned}
+\text{(C1) Fidelity:} \quad & \mathcal{F}_\ell\geq f_\ell \quad \forall \; \ell\in[L] \\[0.5em]
+\text{(C2) Frequency-bin availability:} \quad & \sum_{(u_{\ell_A},u_{\ell_B})\in\mathcal{L}_m} K_\ell \leq K \quad \forall \; m\in[S] \\[0.5em]
+\text{(C3) Contention-free distribution:} \quad & \mathcal{K}_{\ell_\alpha} \cap \mathcal{K}_{\ell'_\beta}=\emptyset \quad \forall \; \ell\neq\ell', \; \alpha,\beta\in\{A,B\}
+\end{aligned}
+$$
 
-**(C3) Contention-free distribution:** $\mathcal{K}_{\ell_\alpha} \cap \mathcal{K}_{\ell'_\beta}=\emptyset$ for all $\ell\neq\ell'$ and $\alpha,\beta\in\{A,B\}$ whose paths $\mathcal{P}_{\ell_\alpha}$ and $\mathcal{P}_{\ell'_\beta}$ share an edge
+where paths $\mathcal{P}_{\ell_\alpha}$ and $\mathcal{P}_{\ell'_\beta}$ share an edge for constraint (C3).
 
 ## Setup Instructions
 
@@ -152,4 +158,3 @@ pip install -r requirements.txt
 ```bash
 python3 -m pip install -r requirements.txt
 ```
->>>>>>> Stashed changes
