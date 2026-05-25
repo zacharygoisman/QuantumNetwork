@@ -100,9 +100,9 @@ The goal is to maximize the chosen definition of network utility $U$ subject to 
 
 $$
 \begin{aligned}
-\text{(C1) Fidelity:} \quad & F_\ell\geq f_\ell \quad \forall \; \ell\in[L] \\[0.5em]
-\text{(C2) Frequency-bin availability:} \quad & \sum_{(u_{\ell_A},u_{\ell_B})\in L_m} K_\ell \leq K \quad \forall \; m\in[S] \\[0.5em]
-\text{(C3) Contention-free distribution:} \quad & K_{\ell_\alpha} \cap K_{\ell'_\beta}=\emptyset \quad \forall \; \ell\neq\ell', \; \alpha,\beta\in\\{A,B\\}
+\text{(C1) Fidelity:} \quad & F_\ell\geq f_\ell \quad \forall \; \ell\in[L] \\
+\text{(C2) Frequency-bin availability:} \quad & \sum_{(u_{\ell_A},u_{\ell_B})\in L_m} K_\ell \leq K \quad \forall \; m\in[S] \\
+\text{(C3) Contention-free distribution:} \quad & K_{\ell_\alpha} \cap K_{\ell'_\beta}=\emptyset \quad \forall \; \ell\neq\ell', \; \alpha,\beta\in\{A,B\}
 \end{aligned}
 $$
 
