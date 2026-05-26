@@ -192,7 +192,7 @@ pip install -r requirements.txt
 ```bash
 python3 -m pip install -r requirements.txt
 ```
-<!-- 
+
 ## Project Structure
 
 ```
@@ -202,6 +202,7 @@ QuantumNetwork/
 ├── config/           # Configuration management and preset definitions
 ├── data/             # Data handling and result storage
 ├── network/          # Network topology generation and management
+├── outputs/          # Generated results (CSV, JSON, SVG plots)
 ├── pipeline/         # Main pipeline orchestration and evaluation
 ├── plotting/         # Visualization tools for networks and results
 ├── routing/          # Routing algorithms (Double Yen, path finding)
@@ -271,5 +272,5 @@ If you use this code in your research, please cite:
 ## License
 
 [Specify license, e.g., MIT, Apache 2.0, or "All rights reserved" for unpublished research]
- -->
+
 
