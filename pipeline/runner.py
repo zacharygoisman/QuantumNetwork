@@ -17,11 +17,15 @@ from pipeline.evaluator import evaluate_stream, select_best
 from data.save import save_json, save_df, ensure_output_dir, build_replot_payload
 from data.dataframe import results_summary_df, combo_to_rows, all_results_link_rows_df
 from plotting.network import plot_network_solution
+from plotting.network_ring import plot_network_solution_ring
 from plotting.utility import (
     plot_link_utility_bars,
     plot_utility_comparison,
     plot_source_allocation,
 )
+from plotting.composite import plot_paper_combined_solution_ring
+
+
 from analysis.metrics import per_link_ub_value
 
 
@@ -162,7 +166,20 @@ def run_pipeline(cfg):
     save_df(combo_to_rows(best, combo_idx=None), outdir / "best_links.csv")
 
     # 9. Plots first so node positions get cached into network.graph["pos"]
-    plot_network_solution(network, best, outdir=outdir)
+    if cfg.topology == "ring":
+        plot_network_solution_ring(network, best, outdir=outdir)
+        plot_paper_combined_solution_ring(
+            network,
+            best,
+            sources,
+            outdir="outputs_replot",
+            filename="combined_solution_paper.pdf",
+            width_inches=6.5,
+            font_size=8.0,
+            layout="stacked",
+        )
+    else:
+        plot_network_solution(network, best, outdir=outdir)
 
     if results:
         plot_link_utility_bars(best, outdir=outdir)

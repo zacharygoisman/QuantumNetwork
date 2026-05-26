@@ -24,16 +24,31 @@ GEM = [
     "#017501", "#FF0000", "#B526FF", "#FF00FF", "#000000",
 ]
 
+# Shared publication font sizes. Use these everywhere so the standalone
+# figures and the composite figure have matching typography.
+PLOT_FONT_SIZE = 20
+PLOT_TITLE_SIZE = PLOT_FONT_SIZE
+PLOT_LABEL_SIZE = PLOT_FONT_SIZE
+PLOT_TICK_SIZE = PLOT_FONT_SIZE
+PLOT_LEGEND_SIZE = PLOT_FONT_SIZE
+
+# Brighter unassigned/surplus-bin gray used by the source-allocation plot.
+NULL_LINK_GRAY = "#EDEDED"
+
+
 
 def apply_plot_style() -> None:
     plt.rcParams.update({
         "figure.dpi": 200,
         "savefig.dpi": 300,
-        "axes.titlesize": 20,
-        "axes.labelsize": 20,
-        "xtick.labelsize": 20,
-        "ytick.labelsize": 20,
-        "legend.fontsize": 20,
+        "axes.titlesize": PLOT_TITLE_SIZE,
+        "axes.labelsize": PLOT_LABEL_SIZE,
+        "xtick.labelsize": PLOT_TICK_SIZE,
+        "ytick.labelsize": PLOT_TICK_SIZE,
+        "legend.fontsize": PLOT_LEGEND_SIZE,
+        "font.size": PLOT_FONT_SIZE,
+        "mathtext.default": "regular",
+        "axes.unicode_minus": True,
         "xtick.direction": "in",
         "ytick.direction": "in",
         "xtick.top": True,
@@ -92,12 +107,65 @@ def safe_int(x: Any, default: int = 0) -> int:
     return int(round(val))
 
 
-def option_link_tuple(option: dict[str, Any]) -> tuple[str, str] | None:
-    link = option.get("link") or option.get("users")
+def true_minus(text: Any) -> str:
+    """Use the typographic minus sign in manually formatted labels."""
+    return str(text).replace("-", "−")
+
+
+def format_float(value: float, fmt: str = ".2f") -> str:
+    """Format a number and replace hyphen-minus with a true minus sign."""
+    return true_minus(format(value, fmt))
+
+
+def _entity_sort_key(label: Any) -> tuple[int, int, str]:
+    """Sort sources/users naturally: U1 before U2 before U10."""
+    s = str(label)
+    m = re.search(r"(?i)\b([us])(?:er|rc|ource)?[_\s-]*?(\d+)\b", s)
+    if not m:
+        m = re.search(r"(?i)\b([us])(\d+)\b", s)
+    if m:
+        kind = 0 if m.group(1).lower() == "u" else 1
+        return (kind, int(m.group(2)), s)
+    nums = re.findall(r"\d+", s)
+    return (2, int(nums[0]) if nums else 10**9, s)
+
+
+def canonical_link_tuple(link: Any) -> tuple[str, str] | None:
+    """Return a canonical user-pair tuple sorted by user number."""
     if isinstance(link, (tuple, list)) and len(link) == 2:
-        return str(link[0]), str(link[1])
+        a, b = str(link[0]), str(link[1])
+        return tuple(sorted((a, b), key=_entity_sort_key))  # type: ignore[return-value]
     return None
 
+
+def option_link_tuple(option: dict[str, Any]) -> tuple[str, str] | None:
+    link = option.get("link") or option.get("users")
+    return canonical_link_tuple(link)
+
+
+def link_sort_key(link: Any) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
+    tup = canonical_link_tuple(link)
+    if tup is None:
+        return (_entity_sort_key(str(link)), (9, 10**9, str(link)))
+    return (_entity_sort_key(tup[0]), _entity_sort_key(tup[1]))
+
+
+def option_sort_key(option: dict[str, Any]) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
+    return link_sort_key(option.get("link") or option.get("users"))
+
+
+def ordered_link_keys_from_options(options: Iterable[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Stable link order: U1-containing links first, then by next-lowest user."""
+    seen: dict[tuple[str, str], None] = {}
+    for opt in sorted(list(options), key=option_sort_key):
+        key = option_link_tuple(opt)
+        if key is not None and key not in seen:
+            seen[key] = None
+    return list(seen.keys())
+
+
+def sorted_options_by_link(options: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(list(options), key=option_sort_key)
 
 def option_link_label(option: dict[str, Any]) -> str:
     tup = option_link_tuple(option)
@@ -169,7 +237,7 @@ def per_link_log_utility(option: dict[str, Any], allocation_record: dict[str, An
 
 def link_color_map(link_labels: list[str]) -> dict[str, Any]:
     colors = {lab: c for lab, c in zip(link_labels, gem_colors(len(link_labels), start=1))}
-    colors["Null Link"] = GEM[0]
+    colors["Null Link"] = NULL_LINK_GRAY
     return colors
 
 
@@ -195,7 +263,7 @@ def augment_legend_with_frequencies(ax, freqs_by_link: dict | None) -> None:
         key = (u1.strip(), u2.strip())
         if key in freqs_by_link:
             to_u1, to_u2 = freqs_by_link[key]
-            lab = f"Link {u1}-{u2}  (+{list(to_u1)} → {u1},  -{list(to_u2)} → {u2})"
+            lab = true_minus(f"Link {u1}-{u2}  (+{list(to_u1)} → {u1},  -{list(to_u2)} → {u2})")
         new_labels.append(lab)
 
     ax.legend(handles, new_labels, loc="best")
