@@ -14,10 +14,11 @@ from pipeline.runner import run_pipeline
 
 def main():
     #cfg = paper_exhaustive()
-    cfg = paper_ring()
-    #cfg = paper_dense()
+    #cfg = paper_ring()
+    cfg = paper_dense()
     #cfg = two_source_three_users_custom()
     #cfg = contention()
+    #cfg = super_dense()
     result = run_pipeline(cfg)
     #print(result)
 

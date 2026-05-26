@@ -16,6 +16,10 @@ outputs/
 # Ignore notebooks checkpoints
 .ipynb_checkpoints/
 
+# Ignore environments
+env/
+.venv/
+
 # Ignore other
 *.txt
 *.js
@@ -23,3 +27,4 @@ outputs/
 *test.py
 *.csv
 *.json
+

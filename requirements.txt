@@ -1,0 +1,38 @@
+#requirements.txt
+
+#create environment
+#python -m venv env
+
+#------------------------------------------------------------
+#on Windows terminal
+#env\Scripts\activate
+
+#on Windows powershell
+#.\env\Scripts\Activate.ps1
+
+#do this if getting scripts is disabled on this system
+#Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+#------------------------------------------------------------
+
+#on Mac/Linux
+#source env/bin/activate
+#----------------------------------------------------------
+#then run "pip install -r requirements.txt" to install the libraries or in bash "python3 -m venv env"
+
+# Optimization
+ortools
+gekko
+scipy
+
+# Graphs / networking
+networkx
+
+# Data + numerics
+numpy
+pandas
+
+# Plotting
+matplotlib
+
+# Typing / utilities
+typing-extensions
