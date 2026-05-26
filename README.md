@@ -192,4 +192,84 @@ pip install -r requirements.txt
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+<!-- 
+## Project Structure
+
+```
+QuantumNetwork/
+├── allocation/       # Spectrum allocation algorithms (APOPT-based)
+├── analysis/         # Performance metrics and upper bound calculations
+├── config/           # Configuration management and preset definitions
+├── data/             # Data handling and result storage
+├── network/          # Network topology generation and management
+├── pipeline/         # Main pipeline orchestration and evaluation
+├── plotting/         # Visualization tools for networks and results
+├── routing/          # Routing algorithms (Double Yen, path finding)
+├── scheduling/       # Frequency scheduling (CP-SAT solver)
+└── main.py           # Entry point for running the pipeline
+```
+
+## Output and Results
+
+### Generated Outputs
+
+The pipeline produces the following outputs:
+
+- **Routing Solutions**: Optimal source assignments and lightpaths for each link
+- **Spectrum Allocation**: Channel flux values and frequency bin assignments per source
+- **Performance Metrics**: Fidelity, coincidence rates, and network utility values
+- **Visualizations**: Network topology plots with routing and allocation overlays
+
+### Output Location
+
+All results are saved to the `outputs/` directory:
+
+**Data Files:**
+- `best_result.json` - Complete results for the optimal solution
+- `best_links.csv` - Link-level details for the best routing/allocation
+- `all_results_summary.csv` - Summary statistics across all evaluated solutions
+- `all_results_links.csv` - Detailed link data for all solutions
+- `replot_payload.json` - Data for regenerating visualizations
+
+**Visualizations:**
+- `network_plot.svg` - Network topology with routing paths
+- `source_allocation.svg` - Channel allocation per source
+- `link_utility_bars.svg` - Utility comparison across links
+- `utility_comparison.svg` - Performance comparison across solutions
+
+### Interpreting Results
+
+- **Network Utility** (`best_result.json`): Higher values indicate better overall network performance
+- **Fidelity Values** (`best_links.csv`): Must meet or exceed specified thresholds for each link
+- **Channel Assignments** (`source_allocation.svg`): Shows which frequency bins are allocated to each user pair
+- **Routing Paths** (`network_plot.svg`): Visualizes the selected lightpaths through the network
+
+### Regenerating Visualizations
+
+To regenerate plots from saved data:
+```python
+from plotting.replot import replot
+replot('outputs/replot_payload.json')
+```
+
+## References
+
+### Citations
+
+This work builds upon:
+
+**Primary Reference:**
+- G. Vardoyan and S. Wehner, "Entanglement Distribution in Quantum Networks: A Scalable Approach," *2023 IEEE International Conference on Quantum Computing and Engineering (QCE)*, vol. 01, pp. 1238–1248, 2023.
+
+### How to Cite This Work
+
+If you use this code in your research, please cite:
+```
+[Add your preferred citation format]
+```
+
+## License
+
+[Specify license, e.g., MIT, Apache 2.0, or "All rights reserved" for unpublished research]
+ -->
 
