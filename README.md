@@ -257,16 +257,18 @@ where paths $P_{\ell_\alpha}$ and $P_{\ell'_\beta}$ share an edge for constraint
 
 ### Citations
 
-This work builds upon:
+This work builds upon: J. Alnas, M. Alshowkan, N. S. V. Rao, et al., “Optimal resource allocation for flexible-grid entanglement distribution
+networks,” Opt. Express 30, 24375–24393 (2022).
 
-**Primary Reference:**
-- G. Vardoyan and S. Wehner, "Entanglement Distribution in Quantum Networks: A Scalable Approach," *2023 IEEE International Conference on Quantum Computing and Engineering (QCE)*, vol. 01, pp. 1238–1248, 2023.
+**Other References:**
+- G. Vardoyan and S. Wehner, “Quantum network utility maximization,” in 2023 IEEE Int. Conf. Quantum Comput.
+Eng. (QCE), (2023), pp. 1238–1248.
 
 ### How to Cite This Work
 
-If you use this code in your research, please cite:
+If you use this code in your research, please cite the paper below:
 ```
-[Add your preferred citation format]
+Paper TBD
 ```
 
 ## License
