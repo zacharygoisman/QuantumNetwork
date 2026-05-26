@@ -273,6 +273,6 @@ Paper TBD
 
 ## License
 
-[Specify license, e.g., MIT, Apache 2.0, or "All rights reserved" for unpublished research]
+MIT. You can use this project freely.
 
 
