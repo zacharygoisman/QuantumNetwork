@@ -1,6 +1,26 @@
 # QuantumNetwork
 Research project for optimizing quantum network routing and spectrum allocation, with the eventual of being used for a physical system.
 
+## Quick Start
+
+```bash
+# After installation (see below), run the pipeline with:
+python main.py
+
+# Or use a preset configuration:
+# python main.py --preset preset_name
+```
+
+By default, this runs the `paper_dense()` preset. To use a different preset, edit `main.py` and uncomment your desired configuration or use the above:
+- `paper_exhaustive()` 
+- `paper_ring()`
+- `paper_dense()` (default)
+- `two_source_three_users_custom()`
+- `contention()`
+- `super_dense()`
+
+## Overview
+
 We have two goals at the moment:
 1. Optimize channel allocation within a source to all lightpaths using said source. (Spectrum Allocation)
 2. Find the best source and route for each pair of users. (Routing)
@@ -106,11 +126,24 @@ The goal is to maximize the chosen definition of network utility $U$ subject to 
 
 where paths $P_{\ell_\alpha}$ and $P_{\ell'_\beta}$ share an edge for constraint (C3).
 
-## Setup Instructions
+## Installation
+
+### Prerequisites
+
+- **Python**: 3.11.9 is recommended for the ortools package
+- **Operating System**: Windows, macOS, or Linux
+
+All required solvers (APOPT via GEKKO, OR-Tools CP-SAT) are included in `requirements.txt`.
+
+### 1. Cloning the repo
+
+```bash
+git clone https://github.com/zacharygoisman/QuantumNetwork.git
+```
 
 This project uses Python dependencies listed in `requirements.txt`. To install them, first create and activate a virtual environment.
 
-### 1. Create a virtual environment
+### 2. Create a virtual environment
 
 Run the following command from the project directory:
 
@@ -124,7 +157,7 @@ python -m venv env
 python3 -m venv env
 ```
 
-### 2. Activate the virtual environment
+### 3. Activate the virtual environment
 
 **Windows Command Prompt:**
 ```bash
@@ -146,7 +179,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 source env/bin/activate
 ```
 
-### 3. Install the required packages
+### 4. Install the required packages
 
 After the virtual environment is activated, install the required libraries using:
 
@@ -159,3 +192,4 @@ pip install -r requirements.txt
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
