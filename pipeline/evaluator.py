@@ -37,11 +37,21 @@ def evaluate_stream(combo_stream, network, sources, cfg):
     combos_seen = 0
     milestone = 100
     t_start = time.perf_counter()
+    
+    # Early termination: if we find a solution within X% of theoretical upper bound, stop
+    early_term_threshold = 0.95  # 95% of upper bound
+    theoretical_ub = None
+    
     for combo in combo_stream:
         combo_idx = combos_seen
         combos_seen += 1
         if cfg.use_upper_bound:
             ub = combo_path_upper_bound(combo)
+            
+            # Track theoretical upper bound from first combo
+            if theoretical_ub is None:
+                theoretical_ub = combo_link_upper_bound(combo)
+            
             if ub < best_utility:
                 results.append({
                     "combo_idx": combo_idx,
@@ -73,6 +83,12 @@ def evaluate_stream(combo_stream, network, sources, cfg):
         if result.get("valid"):
             util = result["utility"]
             best_utility = max(best_utility, util)
+            
+            # Early termination check
+            if theoretical_ub is not None and best_utility >= early_term_threshold * theoretical_ub:
+                print(f"Early termination: Found solution at {100*best_utility/theoretical_ub:.1f}% of theoretical upper bound")
+                results.append(result)
+                break
 
         results.append(result)
         if combos_seen % milestone == 0:
@@ -143,7 +159,6 @@ def evaluate_combo(combo, network, sources, cfg):
     alloc_result = allocate_combo(combo, network, sources, cfg)
     t2 = time.perf_counter()
 
-    alloc_result = allocate_combo(combo, network, sources, cfg)
     if not alloc_result["success"]:
         return {
             "valid": False,
