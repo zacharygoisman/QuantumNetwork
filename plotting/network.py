@@ -60,7 +60,7 @@ def plot_network_solution(
     combo = sorted_options_by_link(best_result.get("combo", []))
     allocation = best_result.get("allocation", {}) or {}
 
-    fig, ax = make_figure(figsize=(12, 6))
+    fig, ax = make_figure(figsize=(11,9))
     pos = _layout(network)
 
     nx.draw_networkx_nodes(

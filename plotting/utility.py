@@ -107,7 +107,7 @@ def plot_link_utility_bars(
 
     w = 0.34
 
-    fig, ax = make_figure(figsize=(8.8, 3.8))
+    fig, ax = make_figure(figsize=(12, 3.8))
 
 
     finite_vals = np.concatenate([ub[np.isfinite(ub)], ac[np.isfinite(ac)]])

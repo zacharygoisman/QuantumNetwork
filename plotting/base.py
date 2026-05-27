@@ -26,7 +26,7 @@ GEM = [
 
 # Shared publication font sizes. Use these everywhere so the standalone
 # figures and the composite figure have matching typography.
-PLOT_FONT_SIZE = 20
+PLOT_FONT_SIZE = 28
 PLOT_TITLE_SIZE = PLOT_FONT_SIZE
 PLOT_LABEL_SIZE = PLOT_FONT_SIZE
 PLOT_TICK_SIZE = PLOT_FONT_SIZE
