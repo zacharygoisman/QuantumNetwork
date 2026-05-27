@@ -1,6 +1,26 @@
 # QuantumNetwork
 Research project for optimizing quantum network routing and spectrum allocation, with the eventual of being used for a physical system.
 
+## Quick Start
+
+```bash
+# After installation (see below), run the pipeline with:
+python main.py
+
+# Or use a preset configuration:
+# python main.py --preset preset_name
+```
+
+By default, this runs the `paper_dense()` preset. To use a different preset, edit `main.py` and uncomment your desired configuration or use the above:
+- `paper_exhaustive()` 
+- `paper_ring()`
+- `paper_dense()` (default)
+- `two_source_three_users_custom()`
+- `contention()`
+- `super_dense()`
+
+## Overview
+
 We have two goals at the moment:
 1. Optimize channel allocation within a source to all lightpaths using said source. (Spectrum Allocation)
 2. Find the best source and route for each pair of users. (Routing)
@@ -9,6 +29,133 @@ This may be expanded on later when considering a dynamic network or a physical s
 
 **Definitions**
 For simplicity, we restrict our topologies to have two types of nodes: sources and users. A **source** is a node that generates and sends entangled photon pairs to **user** nodes. These photon pairs are sent in the form of frequency bin **channels** which all have identical **flux** from the same source, and due to energy conservation, frequency channel 1 has a complementary channel -1 sent to the second user in the pair. Rather than have additional switch nodes, each node is also capable of forwarding these channels to other nodes. Furthermore, I will be describing an entangled link between two user pairs as a **link**.
+
+## Installation
+
+### Prerequisites
+
+- **Python**: 3.11.9 is recommended for the ortools package
+- **Operating System**: Windows, macOS, or Linux
+
+All required solvers (APOPT via GEKKO, OR-Tools CP-SAT) are included in `requirements.txt`.
+
+### 1. Cloning the repository
+
+```bash
+git clone https://github.com/zacharygoisman/QuantumNetwork.git
+```
+
+This project uses Python dependencies listed in `requirements.txt`. To install them, first create and activate a virtual environment.
+
+### 2. Create a virtual environment
+
+Run the following command from the project directory:
+
+**Windows:**
+```bash
+python -m venv env
+```
+
+**Mac/Linux:**
+```bash
+python3 -m venv env
+```
+
+### 3. Activate the virtual environment
+
+**Windows Command Prompt:**
+```bash
+env\Scripts\activate
+```
+
+**Windows PowerShell:**
+```bash
+.\env\Scripts\Activate.ps1
+```
+
+If PowerShell gives an error saying that running scripts is disabled on this system, run:
+```bash
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+**Mac/Linux:**
+```bash
+source env/bin/activate
+```
+
+### 4. Install the required packages
+
+After the virtual environment is activated, install the required libraries using:
+
+**Windows:**
+```bash
+pip install -r requirements.txt
+```
+
+**Mac/Linux:**
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+## Project Structure
+
+```
+QuantumNetwork/
+├── allocation/       # Spectrum allocation algorithms (APOPT-based)
+├── analysis/         # Performance metrics and upper bound calculations
+├── config/           # Configuration management and preset definitions
+├── data/             # Data handling and result storage
+├── network/          # Network topology generation and management
+├── outputs/          # Generated results (CSV, JSON, SVG plots)
+├── pipeline/         # Main pipeline orchestration and evaluation
+├── plotting/         # Visualization tools for networks and results
+├── routing/          # Routing algorithms (Double Yen, path finding)
+├── scheduling/       # Frequency scheduling (CP-SAT solver)
+└── main.py           # Entry point for running the pipeline
+```
+
+## Output and Results
+
+### Generated Outputs
+
+The pipeline produces the following outputs:
+
+- **Routing Solutions**: Optimal source assignments and lightpaths for each link
+- **Spectrum Allocation**: Channel flux values and frequency bin assignments per source
+- **Performance Metrics**: Fidelity, coincidence rates, and network utility values
+- **Visualizations**: Network topology plots with routing and allocation overlays
+
+### Output Location
+
+All results are saved to the `outputs/` directory:
+
+**Data Files:**
+- `best_result.json` - Complete results for the optimal solution
+- `best_links.csv` - Link-level details for the best routing/allocation
+- `all_results_summary.csv` - Summary statistics across all evaluated solutions
+- `all_results_links.csv` - Detailed link data for all solutions
+- `replot_payload.json` - Data for regenerating visualizations
+
+**Visualizations:**
+- `network_plot.svg` - Network topology with routing paths
+- `source_allocation.svg` - Channel allocation per source
+- `link_utility_bars.svg` - Utility comparison across links
+- `utility_comparison.svg` - Performance comparison across solutions
+
+### Interpreting Results
+
+- **Network Utility** (`best_result.json`): Higher values indicate better overall network performance
+- **Fidelity Values** (`best_links.csv`): Must meet or exceed specified thresholds for each link
+- **Channel Assignments** (`source_allocation.svg`): Shows which frequency bins are allocated to each user pair
+- **Routing Paths** (`network_plot.svg`): Visualizes the selected lightpaths through the network
+
+### Regenerating Visualizations
+
+To regenerate plots from saved data:
+```python
+from plotting.replot import replot
+replot('outputs/replot_payload.json')
+```
 
 ## How does this system work?
 After generating the topology, the pipeline has three phases to determine optimal routing and allocation. These are routing (using Double Yen), spectrum allocation (using APOPT), and frequency scheduling (using CP-SAT).
@@ -98,64 +245,34 @@ The goal is to maximize the chosen definition of network utility $U$ subject to 
 
 **Constraints:**
 
-(C1) Fidelity: $F_\ell\geq f_\ell \quad \forall \ell\in[L]$
+(C1) **Fidelity**: $F_\ell\geq f_\ell \quad \forall \ell\in[L]$
 
-(C2) Frequency-bin availability: $\sum_{(u_{\ell_A},u_{\ell_B})\in L_m} K_\ell \leq K \quad \forall m\in[S]$
+(C2) **Frequency-bin availability:** $\sum_{(u_{\ell_A},u_{\ell_B})\in L_m} K_\ell \leq K \quad \forall m\in[S]$
 
-(C3) Contention-free distribution: $K_{\ell_\alpha} \cap K_{\ell'_\beta}=\emptyset \quad \forall \ell\neq\ell', \alpha,\beta\in\{A,B\}$
+(C3) **Contention-free distribution:** $K_{\ell_\alpha} \cap K_{\ell'_\beta}=\emptyset \quad \forall \ell\neq\ell', \alpha,\beta\in\{A,B\}$
 
 where paths $P_{\ell_\alpha}$ and $P_{\ell'_\beta}$ share an edge for constraint (C3).
 
-## Setup Instructions
+## References
 
-This project uses Python dependencies listed in `requirements.txt`. To install them, first create and activate a virtual environment.
+### Citations
 
-### 1. Create a virtual environment
+This work builds upon: J. Alnas, M. Alshowkan, N. S. V. Rao, et al., “Optimal resource allocation for flexible-grid entanglement distribution
+networks,” Opt. Express 30, 24375–24393 (2022).
 
-Run the following command from the project directory:
+**Other References:**
+- G. Vardoyan and S. Wehner, “Quantum network utility maximization,” in 2023 IEEE Int. Conf. Quantum Comput.
+Eng. (QCE), (2023), pp. 1238–1248.
 
-**Windows:**
-```bash
-python -m venv env
+### How to Cite This Work
+
+If you use this code in your research, please cite the paper below:
+```
+Paper TBD
 ```
 
-**Mac/Linux:**
-```bash
-python3 -m venv env
-```
+## License
 
-### 2. Activate the virtual environment
+MIT. You can use this project freely.
 
-**Windows Command Prompt:**
-```bash
-env\Scripts\activate
-```
 
-**Windows PowerShell:**
-```bash
-.\env\Scripts\Activate.ps1
-```
-
-If PowerShell gives an error saying that running scripts is disabled on this system, run:
-```bash
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-**Mac/Linux:**
-```bash
-source env/bin/activate
-```
-
-### 3. Install the required packages
-
-After the virtual environment is activated, install the required libraries using:
-
-**Windows:**
-```bash
-pip install -r requirements.txt
-```
-
-**Mac/Linux:**
-```bash
-python3 -m pip install -r requirements.txt
-```
