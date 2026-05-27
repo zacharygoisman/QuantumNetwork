@@ -16,7 +16,10 @@ import matplotlib.patheffects as pe
 import networkx as nx
 
 from .base import (
+    PLOT_FONT_SIZE,
+    bar_link_label,
     entity_mathtext,
+    format_float,
     gem_colors,
     make_figure,
     option_link_label,
@@ -24,6 +27,7 @@ from .base import (
     path_loss,
     safe_float,
     save_figure,
+    sorted_options_by_link,
 )
 
 
@@ -187,7 +191,7 @@ def _layout(network: nx.Graph):
     return pos
 
 
-def plot_network_solution(
+def plot_network_solution_ring(
     network: nx.Graph,
     best_result: dict[str, Any] | None,
     outdir: str | Path = "outputs",
@@ -196,7 +200,7 @@ def plot_network_solution(
     if best_result is None:
         return None
 
-    combo = list(best_result.get("combo", []))
+    combo = sorted_options_by_link(best_result.get("combo", []))
     allocation = best_result.get("allocation", {}) or {}
 
     # Make the plot taller to give more vertical room for separated users
@@ -227,7 +231,7 @@ def plot_network_solution(
         pos,
         labels={n: entity_mathtext(str(n)) for n in network.nodes()},
         ax=ax,
-        font_size=22,
+        font_size=PLOT_FONT_SIZE,
         font_weight="bold",
     )
 
@@ -258,18 +262,18 @@ def plot_network_solution(
             alpha=0.75,
         )
 
-        label = f"Link {option_link_label(option)}"
+        label = f"Link {bar_link_label(option.get('link') or option.get('users') or option_link_label(option))}"
         if k is not None:
             label += f"  (k={k}"
             if mu == mu:
-                label += f", μ={mu:.3g}"
+                label += f", μ={format_float(mu, '.3g')}"
             label += ")"
 
         handle = ax.plot([], [], color=color, lw=3.5, label=label)[0]
         legend_handles.append(handle)
 
     edge_labels = {
-        (u, v): f"{safe_float(data.get('loss', 1.0), 1.0):.2f}"
+        (u, v): format_float(safe_float(data.get('loss', 1.0), 1.0), ".2f")
         for u, v, data in network.edges(data=True)
         if u != v
     }
@@ -279,7 +283,7 @@ def plot_network_solution(
         pos,
         edge_labels=edge_labels,
         ax=ax,
-        font_size=13,
+        font_size=PLOT_FONT_SIZE,
         rotate=True,
         label_pos=0.5,
     )
@@ -308,7 +312,7 @@ def plot_network_solution(
             # )
 
     if legend_handles:
-        ax.legend(loc="best", frameon=True, fontsize=16)
+        ax.legend(loc="best", frameon=True, fontsize=PLOT_FONT_SIZE)
 
     ax.set_axis_off()
     #ax.set_title("")

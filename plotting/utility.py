@@ -21,11 +21,18 @@ import re
 
 from .base import (
     GEM,
+    NULL_LINK_GRAY,
+    PLOT_LABEL_SIZE,
+    PLOT_LEGEND_SIZE,
+    PLOT_TICK_SIZE,
     bar_link_label,
+    canonical_link_tuple,
     entity_mathtext,
+    format_float,
     gem_colors,
     make_figure,
     option_link_label,
+    ordered_link_keys_from_options,
     per_link_log_utility,
     safe_float,
     safe_int,
@@ -36,22 +43,7 @@ from .base import (
 def _ordered_link_keys(best_result: dict[str, Any] | None) -> list[tuple[str, str]]:
     if best_result is None:
         return []
-
-    ordered = []
-    seen = set()
-
-    for opt in best_result.get("combo", []):
-        link = opt.get("link") or opt.get("users")
-        if not (isinstance(link, (tuple, list)) and len(link) == 2):
-            continue
-
-        key = (str(link[0]), str(link[1]))
-        if key not in seen:
-            seen.add(key)
-            ordered.append(key)
-
-    return ordered
-
+    return ordered_link_keys_from_options(best_result.get("combo", []))
 
 def _best_rows(best_result: dict[str, Any] | None) -> list[dict[str, Any]]:
     if best_result is None:
@@ -67,9 +59,7 @@ def _best_rows(best_result: dict[str, Any] | None) -> list[dict[str, Any]]:
             alloc = opt["allocation"]
 
         link = opt.get("link") or opt.get("users") or option_link_label(opt)
-        link_key = None
-        if isinstance(link, (tuple, list)) and len(link) == 2:
-            link_key = (str(link[0]), str(link[1]))
+        link_key = canonical_link_tuple(link)
 
         rows.append({
             "link": link,
@@ -166,20 +156,20 @@ def plot_link_utility_bars(
 
     yticks = np.linspace(y_bottom, y_top, 3)
     ax.set_yticks(yticks)
-    ax.set_yticklabels([f"{t:.2f}" for t in yticks])
-    ax.tick_params(axis="y", labelsize=10)
+    ax.set_yticklabels([format_float(t, ".2f") for t in yticks], fontsize=PLOT_TICK_SIZE)
+    ax.tick_params(axis="y", labelsize=PLOT_TICK_SIZE)
 
     # Place a single xtick label centered under each pair of bars
     tick_positions = x
     tick_labels = [bar_link_label(t) for t in links]
 
     ax.set_xticks(tick_positions)
-    ax.set_xticklabels(tick_labels, ha="center", fontsize=11)
+    ax.set_xticklabels(tick_labels, ha="center", fontsize=PLOT_TICK_SIZE)
     try:
         fig.subplots_adjust(bottom=0.16)
     except Exception:
         pass
-    ax.set_ylabel("Utility (log₁₀ units)", fontsize=11)
+    ax.set_ylabel(r"$\log_{10}\mathcal{R}_{\ell}$", fontsize=PLOT_LABEL_SIZE)
 
     # no x tick marks, but keep y tick marks
     ax.tick_params(axis="x", which="both", bottom=False, top=False, length=0)
@@ -188,7 +178,7 @@ def plot_link_utility_bars(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.margins(x=0.10)
-    ax.legend(fontsize=10, frameon=True)
+    ax.legend(fontsize=PLOT_LEGEND_SIZE, frameon=True)
 
     return save_figure(fig, outdir, filename)
 
@@ -268,8 +258,8 @@ def plot_utility_comparison(
             color="k",
         )
 
-    ax.set_xlabel("Path Combination")
-    ax.set_ylabel("Utility")
+    ax.set_xlabel("Path Combination", fontsize=PLOT_LABEL_SIZE)
+    ax.set_ylabel(r"$\log_{10}\mathcal{R}_{\ell}$", fontsize=PLOT_LABEL_SIZE)
     ax.legend(loc="best")
 
     return save_figure(fig, outdir, filename)
@@ -314,7 +304,7 @@ def _best_result_to_source_rows(best_result: dict[str, Any] | None) -> list[dict
                 "channel_allocation": [],
             }
 
-        grouped[source]["links"].append((str(link[0]), str(link[1])))
+        grouped[source]["links"].append(canonical_link_tuple(link) or (str(link[0]), str(link[1])))
         grouped[source]["channel_allocation"].append(k)
 
     return list(grouped.values())
@@ -433,7 +423,7 @@ def source_allocation(
     if bar_lw is None:
         bar_lw = cap_lw
 
-    null_gray = (0.8, 0.8, 0.8)
+    null_gray = NULL_LINK_GRAY
 
     def _link_colors(labels):
         non_null = [lab for lab in labels if lab != "Null Link"]
@@ -516,7 +506,7 @@ def source_allocation(
 
         return (labels[:n] + ["Null Link"] * n)[:n]
 
-    src_names = list(sources.keys())
+    src_names = sorted(list(sources.keys()), key=lambda x: (re.sub(r"\D", "", str(x)).zfill(8), str(x)))
 
     entry_by_source = {
         str(e["source"]): e
@@ -536,7 +526,8 @@ def source_allocation(
                     link_labels.append(lab)
 
     if freqs_by_link:
-        for (u1, u2) in freqs_by_link.keys():
+        for (u1, u2) in sorted(freqs_by_link.keys(), key=lambda lk: canonical_link_tuple(lk) or (str(lk[0]), str(lk[1]))):
+            u1, u2 = canonical_link_tuple((u1, u2)) or (str(u1), str(u2))
             lab = f"Link {u1}{u2}"
             if lab not in link_labels:
                 link_labels.append(lab)
@@ -611,7 +602,7 @@ def source_allocation(
             )
             cap_patch = PathPatch(
                 cap_path,
-                facecolor=null_gray,
+                facecolor="none",
                 edgecolor="black",
                 lw=float(cap_lw),
                 antialiased=True,
