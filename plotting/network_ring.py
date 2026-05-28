@@ -204,7 +204,7 @@ def plot_network_solution_ring(
     allocation = best_result.get("allocation", {}) or {}
 
     # Make the plot taller to give more vertical room for separated users
-    fig, ax = make_figure(figsize=(12, 9))
+    fig, ax = make_figure(figsize=(19, 10))
     pos = _layout(network)
 
     nx.draw_networkx_nodes(

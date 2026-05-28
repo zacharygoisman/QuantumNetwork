@@ -33,7 +33,7 @@ PLOT_TICK_SIZE = PLOT_FONT_SIZE
 PLOT_LEGEND_SIZE = PLOT_FONT_SIZE
 
 # Brighter unassigned/surplus-bin gray used by the source-allocation plot.
-NULL_LINK_GRAY = "#EDEDED"
+NULL_LINK_GRAY = "#d5d5d5ff"
 
 
 

@@ -75,7 +75,7 @@ def _best_rows(best_result: dict[str, Any] | None) -> list[dict[str, Any]]:
     return rows
 
 
-def plot_link_utility_bars(
+def plot_link_utility_bars(cfg,
     best_result: dict[str, Any] | None,
     outdir: str | Path = "outputs",
     filename: str = "link_utility_bars.svg",
@@ -107,7 +107,10 @@ def plot_link_utility_bars(
 
     w = 0.34
 
-    fig, ax = make_figure(figsize=(12, 3.8))
+    if cfg.topology == "ring":
+        fig, ax = make_figure(figsize=(20, 5))
+    else:
+        fig, ax = make_figure(figsize=(12, 3.8))
 
 
     finite_vals = np.concatenate([ub[np.isfinite(ub)], ac[np.isfinite(ac)]])
@@ -737,7 +740,7 @@ def save_source_allocation(
     return path
 
 
-def plot_source_allocation(
+def plot_source_allocation(cfg,
     best_result: dict[str, Any] | None,
     sources: dict[str, Any],
     freqs_by_link: dict[tuple[str, str], tuple[list[int], list[int]]] | None = None,
