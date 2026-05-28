@@ -89,34 +89,19 @@ def check_interference(combo, alloc_result, sources):
                     model.Add(pos[i, e, c] <= use[i, c])
                     model.Add(neg[i, e, c] <= use[i, c])
 
-                    model.Add(pos[i, e, c] <= 1 - swap[i])
-                    model.Add(neg[i, e, c] <= swap[i])
-
-                    model.Add(pos[i, e, c] + neg[i, e, c] == use[i, c])
-                else:  # e in e2
-                    # path2 gets - if not swapped, + if swapped
-                    model.Add(pos[i, e, c] <= use[i, c])
-                    model.Add(neg[i, e, c] <= use[i, c])
-
-                    model.Add(pos[i, e, c] <= swap[i])
-                    model.Add(neg[i, e, c] <= 1 - swap[i])
-
-                    model.Add(pos[i, e, c] + neg[i, e, c] == use[i, c])
-
-    # no signed channel collision on same edge
-    for e in all_edges:
-        seen_channels = sorted(set(
-            c for i, src in enumerate(link_src)
-            for c in sources[src]["available_channels"]
-        ))
-        for c in seen_channels:
-            pos_terms = [pos[i, e, c] for i, src in enumerate(link_src) if (i, e, c) in pos]
-            neg_terms = [neg[i, e, c] for i, src in enumerate(link_src) if (i, e, c) in neg]
-
-            if pos_terms:
-                model.Add(sum(pos_terms) <= 1)
-            if neg_terms:
-                model.Add(sum(neg_terms) <= 1)
+    #No signed channel collision on the same edge: at most one + and one - 
+    # per edge per channel, and only consider (link, channel) pairs that exist.
+    for e, link_idxs in edge_to_links.items():
+        # Group by channel -> list of link indices that can use channel c on edge e
+        per_channel = {}
+        for i in link_idxs:
+            for c in src_pool[i]:
+                if (i, e, c) in pos:
+                    per_channel.setdefault(c, []).append(i)
+        for c, idxs in per_channel.items():
+            if len(idxs) > 1:
+                model.Add(sum(pos[i, e, c] for i in idxs) <= 1)
+                model.Add(sum(neg[i, e, c] for i in idxs) <= 1)
 
     solver = cp_model.CpSolver()
     status = solver.Solve(model)
