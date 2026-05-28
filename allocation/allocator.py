@@ -11,11 +11,9 @@ combos which share the same source group don't re-invoke the APOPT subprocess.
 #2026.03.26
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#
 
-from gekko import GEKKO
-import numpy as np
 import math
 import os
-import contextlib    
+import contextlib
 from collections import defaultdict
 
 from gekko import GEKKO
@@ -29,16 +27,14 @@ _ALLOC_CACHE_MAX = 8192
 def allocate_combo(combo, network, sources, cfg):
     by_source = defaultdict(list)
 
-    #Group options by source
+    # Group options by source
     for option in combo:
         by_source[option["source"]].append(option)
 
-    total_utility = 0
+    total_utility = 0.0
     allocations = {}
 
-    #Run allocation for each source independently, then combine results
     for s, opts in by_source.items():
-        #Obtain parameters for this source's options
         K = len(sources[s]["available_channels"])
         y1 = tuple(float(o["y1"]) for o in opts)
         y2 = tuple(float(o["y2"]) for o in opts)
@@ -76,11 +72,21 @@ def allocate_combo(combo, network, sources, cfg):
             if len(_ALLOC_CACHE) < _ALLOC_CACHE_MAX:
                 _ALLOC_CACHE[cache_key] = cached
 
-    #Return combined results across all sources
+        total_utility += cached["obj"]
+        for i, o in enumerate(opts):
+            allocations[id(o)] = {
+                "source": s,
+                "link": o["link"],
+                "link_idx": o["link_idx"],
+                "k": int(cached["k"][i]),
+                "mu": float(cached["mu"]),
+                "prelog_rate": float(cached["prelog"][i]),
+            }
+
     return {
         "success": True,
         "utility": float(total_utility),
-        "allocation": allocations
+        "allocation": allocations,
     }
 
 
@@ -111,7 +117,7 @@ def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True):
         # Only one link: skip the integer search and force k = 1.
         k_vars = [m.Var(value=1, integer=True, lb=1, ub=1)]
         m.Equation(sum(k_vars) == 1)
-    else: #Multiple links: need integer k variables and sum(k) <= K constraint
+    else:
         ub_each = K if per_link_k_cap is None else min(K, int(per_link_k_cap))
         # Warm start: distribute channels proportionally to link "quality"
         total_quality = sum(1.0 / (y1[i] + y2[i] + 1e-9) for i in range(N_links))
@@ -128,17 +134,16 @@ def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True):
 
     # Fidelity constraints per link
     for i in range(N_links):
-        expr = mu**2 * k_vars[i]**2 + mu * k_vars[i]*(2*(y1[i]+y2[i]) + 1) + 4*y1[i]*y2[i]
-        m.Equation(0.25*(1 + (3*mu*k_vars[i]) / expr) >= fidelity_limit[i])
+        expr = mu**2 * k_vars[i]**2 + mu * k_vars[i] * (2 * (y1[i] + y2[i]) + 1) + 4 * y1[i] * y2[i]
+        m.Equation(0.25 * (1 + (3 * mu * k_vars[i]) / expr) >= fidelity_limit[i])
 
     # Objective: maximize sum log10(expr_i)
     obj = 0
     for i in range(N_links):
-        expr = mu**2 * k_vars[i]**2 + mu * k_vars[i]*(2*(y1[i]+y2[i]) + 1) + 4*y1[i]*y2[i]
+        expr = mu**2 * k_vars[i]**2 + mu * k_vars[i] * (2 * (y1[i] + y2[i]) + 1) + 4 * y1[i] * y2[i]
         obj += m.log10(expr)
     m.Obj(-obj)
 
-    #Solve MINLP
     with open(os.devnull, 'w') as devnull:
         with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
             m.solve(disp=False)
@@ -153,7 +158,6 @@ def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True):
     if N_links > 1:
         total = sum(k_int)
         if total > K:
-            #Prefer to decrement those rounded up the most
             round_up_amt = [k_int[i] - raw_k[i] for i in range(N_links)]
             while total > K:
                 candidates = [(i, round_up_amt[i]) for i in range(N_links) if k_int[i] > 1]
@@ -168,21 +172,18 @@ def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True):
         F = fidelity_limit[i]
         s = y1[i] + y2[i]
         p = y1[i] * y2[i]
-        t = 4.0*F - 1.0  #> 0
-        A = t * (k_i**2)
-        B = t * k_i * (2.0*s + 1.0) - 3.0 * k_i
+        t = 4.0 * F - 1.0
+        A = t * (k_i ** 2)
+        B = t * k_i * (2.0 * s + 1.0) - 3.0 * k_i
         C = 4.0 * t * p
-        #Discriminant
-        D = B*B - 4.0*A*C
+        D = B * B - 4.0 * A * C
         if D <= 0.0:
-            #numerically tight; fall back to current mu value to be safe
             return max(float(mu.value[0]), 1e-9)
         sqrtD = math.sqrt(D)
-        #Upper root
         mu_hi = (-B + sqrtD) / (2.0 * A)
         return max(mu_hi, 1e-9)
 
-    mu_star = (minlp_maximum_iterations
+    mu_star = (
         min(mu_upper_for_link(i, k_int[i]) for i in range(N_links))
         if N_links > 0
         else float(mu.value[0])
