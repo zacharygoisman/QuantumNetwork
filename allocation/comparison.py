@@ -511,8 +511,8 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
         bottom += heights
 
     ax.yaxis.set_major_locator(MaxNLocator(nbins=3, integer=True))
-    ax.set_ylabel(r'No. of Channels $K_\ell$', fontsize=FS)
-    ax.set_xlabel(r'$K_\ell$', fontsize=FS)
+    ax.set_ylabel(r'Allocated Channels $K_\ell$', fontsize=FS)
+    ax.set_xlabel(r'$Total Channels $K$', fontsize=FS)
 
     leg_cols = 2 if max_links >= 12 else 1
     ax.legend(loc='upper left', bbox_to_anchor=(-0.00, 1.1), fontsize=FS,
