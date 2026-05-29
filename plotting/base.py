@@ -1,28 +1,48 @@
-#plotting/base.py
+# plotting/base.py
 """
-Plotting defaults
+Shared plotting primitives.
+
+This module groups helpers used by every figure in the project so that the
+standalone plots (network, utility bars, source allocation) and the
+publication composite render with consistent typography, colors, sort order
+and label formatting.
+
+The public surface is intentionally small and is re-exported via ``__all__``
+so that :mod:`plotting` consumers have a single import target.
 """
 
-#ZHG
-#2026.03.26
-#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#
+# ZHG
+# 2026.03.26
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
 
 from __future__ import annotations
 
-from pathlib import Path
 import math
 import re
+from pathlib import Path
 from typing import Any, Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-GEM = [
+# --------------------------------------------------------------------------- #
+# Constants
+# --------------------------------------------------------------------------- #
+
+#: Twelve-color qualitative palette derived from MATLAB's ``GEM`` scheme,
+#: with three additional accent colors appended for plots that need more
+#: than the default eight series.
+GEM: list[str] = [
     "#0072BD", "#D95319", "#EDB120", "#7E2F8E",
     "#77AC30", "#4DBEEE", "#A2142F", "#003BFF",
     "#017501", "#FF0000", "#B526FF", "#FF00FF", "#000000",
 ]
+
+#: Light gray used for the unassigned / surplus bin in the source-allocation
+#: plot. Bright enough to read against black borders without dominating the
+#: assigned-link colors.
+NULL_LINK_GRAY = "#EDEDED"
 
 # Shared publication font sizes. Use these everywhere so the standalone
 # figures and the composite figure have matching typography.
@@ -36,8 +56,12 @@ PLOT_LEGEND_SIZE = PLOT_FONT_SIZE
 NULL_LINK_GRAY = "#d5d5d5ff"
 
 
+# --------------------------------------------------------------------------- #
+# Figure / style helpers
+# --------------------------------------------------------------------------- #
 
 def apply_plot_style() -> None:
+    """Apply the project-wide Matplotlib rcParams used by every standalone plot."""
     plt.rcParams.update({
         "figure.dpi": 200,
         "savefig.dpi": 300,
@@ -56,12 +80,14 @@ def apply_plot_style() -> None:
     })
 
 
-def make_figure(figsize=(8, 5)):
+def make_figure(figsize: tuple[float, float] = (8, 5)):
+    """Create a styled ``(fig, ax)`` pair with the project rcParams applied."""
     apply_plot_style()
     return plt.subplots(figsize=figsize)
 
 
 def save_figure(fig, outdir: str | Path, filename: str) -> Path:
+    """Save ``fig`` under ``outdir/filename`` and close it. Returns the full path."""
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     path = outdir / filename
@@ -72,12 +98,35 @@ def save_figure(fig, outdir: str | Path, filename: str) -> Path:
 
 
 def gem_colors(n: int, start: int = 0) -> list[str]:
+    """Return ``n`` colors cycled from :data:`GEM` starting at index ``start``."""
     if n <= 0:
         return []
     return [GEM[(start + i) % len(GEM)] for i in range(n)]
 
 
+def link_color_map(link_labels: list[str]) -> dict[str, Any]:
+    """Map each link label to a color, reserving ``NULL_LINK_GRAY`` for null links."""
+    colors: dict[str, Any] = {
+        label: color
+        for label, color in zip(link_labels, gem_colors(len(link_labels), start=1))
+    }
+    colors["Null Link"] = NULL_LINK_GRAY
+    return colors
+
+
+# --------------------------------------------------------------------------- #
+# Numeric coercion
+# --------------------------------------------------------------------------- #
+
 def safe_float(x: Any, default: float = float("nan")) -> float:
+    """
+    Coerce ``x`` to ``float`` while tolerating CVXPY-style wrappers, sequences
+    and exotic numeric containers. Falls back to ``default`` on any failure.
+
+    For multi-element sequences the sum is returned, matching the historical
+    behavior used by the allocation reports (where channel counts arrive as
+    arrays whose total represents the link allocation).
+    """
     try:
         if hasattr(x, "value"):
             v = x.value
@@ -101,37 +150,80 @@ def safe_float(x: Any, default: float = float("nan")) -> float:
 
 
 def safe_int(x: Any, default: int = 0) -> int:
+    """Round-coerce ``x`` to ``int``; returns ``default`` for non-finite inputs."""
     val = safe_float(x, float(default))
     if not np.isfinite(val):
         return default
     return int(round(val))
 
 
+# --------------------------------------------------------------------------- #
+# Text / label formatting
+# --------------------------------------------------------------------------- #
+
 def true_minus(text: Any) -> str:
-    """Use the typographic minus sign in manually formatted labels."""
+    """Replace hyphen-minus with the typographic minus sign (U+2212)."""
     return str(text).replace("-", "−")
 
 
 def format_float(value: float, fmt: str = ".2f") -> str:
-    """Format a number and replace hyphen-minus with a true minus sign."""
+    """Format a number with ``fmt`` and apply :func:`true_minus`."""
     return true_minus(format(value, fmt))
 
 
+# Matches "U1", "U_1", "User 1", "S3", "Src3", "Source 3", etc.
+_ENTITY_TOKEN_RE = re.compile(
+    r"(?i)\b(u(?:ser)?|s(?:rc|ource)?)[_\s-]*?(\d+)\b"
+)
+
+
+def entity_mathtext(label: str) -> str:
+    """Render entity labels as mathtext, e.g. ``U12`` -> ``u$_{12}$``."""
+
+    def repl(m: re.Match[str]) -> str:
+        base = m.group(1).lower()
+        idx = int(m.group(2))
+        return rf"{base}$_{{{idx}}}$"
+
+    return _ENTITY_TOKEN_RE.sub(repl, str(label))
+
+
+def bar_link_label(label: Any) -> str:
+    """Format a link label for a bar tick: a 2-tuple, ``"U1-U2"`` string, etc."""
+    if isinstance(label, (tuple, list)) and len(label) == 2:
+        return entity_mathtext(label[0]) + entity_mathtext(label[1])
+
+    if isinstance(label, str):
+        for sep in ("-", "–"):
+            if sep in label:
+                left, right = label.split(sep, 1)
+                return entity_mathtext(left.strip()) + entity_mathtext(right.strip())
+
+    return entity_mathtext(str(label))
+
+
+# --------------------------------------------------------------------------- #
+# Sort & ordering helpers
+# --------------------------------------------------------------------------- #
+
 def _entity_sort_key(label: Any) -> tuple[int, int, str]:
-    """Sort sources/users naturally: U1 before U2 before U10."""
+    """
+    Natural sort for entity labels: ``U1 < U2 < U10`` and users before sources.
+
+    Returns a ``(kind, index, original)`` tuple where ``kind`` is 0 for users,
+    1 for sources and 2 for anything else.
+    """
     s = str(label)
-    m = re.search(r"(?i)\b([us])(?:er|rc|ource)?[_\s-]*?(\d+)\b", s)
-    if not m:
-        m = re.search(r"(?i)\b([us])(\d+)\b", s)
+    m = _ENTITY_TOKEN_RE.search(s)
     if m:
-        kind = 0 if m.group(1).lower() == "u" else 1
+        kind = 0 if m.group(1)[0].lower() == "u" else 1
         return (kind, int(m.group(2)), s)
     nums = re.findall(r"\d+", s)
     return (2, int(nums[0]) if nums else 10**9, s)
 
 
 def canonical_link_tuple(link: Any) -> tuple[str, str] | None:
-    """Return a canonical user-pair tuple sorted by user number."""
+    """Return a canonical ``(low, high)`` user-pair tuple, or ``None`` if unparseable."""
     if isinstance(link, (tuple, list)) and len(link) == 2:
         a, b = str(link[0]), str(link[1])
         return tuple(sorted((a, b), key=_entity_sort_key))  # type: ignore[return-value]
@@ -139,23 +231,39 @@ def canonical_link_tuple(link: Any) -> tuple[str, str] | None:
 
 
 def option_link_tuple(option: dict[str, Any]) -> tuple[str, str] | None:
+    """Canonical link tuple from an option's ``link`` or ``users`` field."""
+    return canonical_link_tuple(option.get("link") or option.get("users"))
+
+
+def option_link_label(option: dict[str, Any]) -> str:
+    """Concatenated user label for an option, e.g. ``"U1U2"``."""
+    tup = option_link_tuple(option)
+    if tup is not None:
+        return f"{tup[0]}{tup[1]}"
     link = option.get("link") or option.get("users")
-    return canonical_link_tuple(link)
+    return str(link)
 
 
 def link_sort_key(link: Any) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
+    """Sort key for a link: by lower endpoint then upper endpoint."""
     tup = canonical_link_tuple(link)
     if tup is None:
-        return (_entity_sort_key(str(link)), (9, 10**9, str(link)))
+        s = str(link)
+        return (_entity_sort_key(s), (9, 10**9, s))
     return (_entity_sort_key(tup[0]), _entity_sort_key(tup[1]))
 
 
 def option_sort_key(option: dict[str, Any]) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
+    """Sort key for an option, dispatching to :func:`link_sort_key`."""
     return link_sort_key(option.get("link") or option.get("users"))
 
 
 def ordered_link_keys_from_options(options: Iterable[dict[str, Any]]) -> list[tuple[str, str]]:
-    """Stable link order: U1-containing links first, then by next-lowest user."""
+    """
+    Return the unique canonical link tuples of ``options`` in stable order.
+
+    Order preserves U1-containing links first, then ascends by next-lowest user.
+    """
     seen: dict[tuple[str, str], None] = {}
     for opt in sorted(list(options), key=option_sort_key):
         key = option_link_tuple(opt)
@@ -165,55 +273,36 @@ def ordered_link_keys_from_options(options: Iterable[dict[str, Any]]) -> list[tu
 
 
 def sorted_options_by_link(options: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return ``options`` sorted by canonical link order."""
     return sorted(list(options), key=option_sort_key)
 
-def option_link_label(option: dict[str, Any]) -> str:
-    tup = option_link_tuple(option)
-    if tup is not None:
-        return f"{tup[0]}{tup[1]}"
-    link = option.get("link") or option.get("users")
-    return str(link)
 
-
-def entity_mathtext(label: str) -> str:
-    def repl(m: re.Match[str]) -> str:
-        base = m.group(1).lower()
-        idx = int(m.group(2))
-        return rf"{base}$_{{{idx}}}$"
-
-    s = str(label)
-    s = re.sub(r"(?i)\b(u(?:ser)?|s(?:rc|ource)?)[_\s-]*?(\d+)\b", repl, s)
-    s = re.sub(r"(?i)\b([us])(\d+)\b", repl, s)
-    return s
-
-
-def bar_link_label(label: Any) -> str:
-    if isinstance(label, (tuple, list)) and len(label) == 2:
-        return entity_mathtext(label[0]) + entity_mathtext(label[1])
-
-    if isinstance(label, str):
-        for sep in ["-", "–"]:
-            if sep in label:
-                left, right = label.split(sep, 1)
-                return entity_mathtext(left.strip()) + entity_mathtext(right.strip())
-
-    return entity_mathtext(str(label))
-
+# --------------------------------------------------------------------------- #
+# Network geometry & utility math
+# --------------------------------------------------------------------------- #
 
 def path_edges(path: Iterable[str]) -> list[tuple[str, str]]:
-    path = list(path)
-    return [tuple(sorted((path[i], path[i + 1]))) for i in range(len(path) - 1)]
+    """Yield the canonical (sorted) edges traversed by ``path``."""
+    nodes = list(path)
+    return [tuple(sorted((nodes[i], nodes[i + 1]))) for i in range(len(nodes) - 1)]
 
 
 def path_loss(network, path: Iterable[str]) -> float:
-    path = list(path)
-    total = 0.0
-    for u, v in zip(path, path[1:]):
-        total += safe_float(network[u][v].get("loss", 1.0), 1.0)
-    return total
+    """Sum the per-edge ``loss`` attribute along ``path``; missing edges contribute 1.0."""
+    nodes = list(path)
+    return sum(
+        safe_float(network[u][v].get("loss", 1.0), 1.0)
+        for u, v in zip(nodes, nodes[1:])
+    )
 
 
 def per_link_expr(option: dict[str, Any], allocation_record: dict[str, Any] | None) -> float:
+    """
+    Compute the per-link rate expression
+    ``μ²k² + μk·(2(y1+y2)+1) + 4·y1·y2``.
+
+    Returns NaN when any input is missing or non-finite.
+    """
     if allocation_record is None:
         return float("nan")
 
@@ -229,28 +318,32 @@ def per_link_expr(option: dict[str, Any], allocation_record: dict[str, Any] | No
 
 
 def per_link_log_utility(option: dict[str, Any], allocation_record: dict[str, Any] | None) -> float:
+    """``log10`` of :func:`per_link_expr`; returns NaN for non-positive expressions."""
     expr = per_link_expr(option, allocation_record)
     if not np.isfinite(expr) or expr <= 0:
         return float("nan")
     return math.log10(expr)
 
 
-def link_color_map(link_labels: list[str]) -> dict[str, Any]:
-    colors = {lab: c for lab, c in zip(link_labels, gem_colors(len(link_labels), start=1))}
-    colors["Null Link"] = NULL_LINK_GRAY
-    return colors
-
+# --------------------------------------------------------------------------- #
+# Legend
+# --------------------------------------------------------------------------- #
 
 def augment_legend_with_frequencies(ax, freqs_by_link: dict | None) -> None:
+    """
+    Append per-direction channel counts to each ``Link Ux-Uy`` entry on ``ax``.
+
+    ``freqs_by_link`` maps a canonical user-pair tuple to ``(to_u1, to_u2)``
+    frequency lists. Entries without a matching key are left untouched.
+    """
     if not freqs_by_link:
         return
 
     handles, labels = ax.get_legend_handles_labels()
-    new_labels = []
+    new_labels: list[str] = []
 
     for lab in labels:
-        s = lab.strip()
-        base = s.replace("Link ", "")
+        base = lab.strip().replace("Link ", "")
 
         if "-" in base:
             u1, u2 = base.split("-", 1)
@@ -263,7 +356,9 @@ def augment_legend_with_frequencies(ax, freqs_by_link: dict | None) -> None:
         key = (u1.strip(), u2.strip())
         if key in freqs_by_link:
             to_u1, to_u2 = freqs_by_link[key]
-            lab = true_minus(f"Link {u1}-{u2}  (+{list(to_u1)} → {u1},  -{list(to_u2)} → {u2})")
+            lab = true_minus(
+                f"Link {u1}-{u2}  (+{list(to_u1)} → {u1},  -{list(to_u2)} → {u2})"
+            )
         new_labels.append(lab)
 
     ax.legend(handles, new_labels, loc="best")

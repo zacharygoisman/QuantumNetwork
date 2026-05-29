@@ -1,42 +1,63 @@
 # plotting/replot.py
-#cd 'C:\Users\zgois\OneDrive\Desktop\Stuff\Quantum\QuantumNetwork\locked_in_version'
-#python -m plotting.replot --payload outputs/replot_payload.json --outdir outputs_replot
-from pathlib import Path
+"""
+Regenerate the standard plots from a saved replot payload.
+
+Run from the project root:
+
+    python -m plotting.replot --payload outputs/replot_payload.json --outdir outputs_replot
+"""
+
+# ZHG
+# 2026.03.26
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+
+from __future__ import annotations
+
 import argparse
+from pathlib import Path
+
 import networkx as nx
 
 from data.save import load_json
 from plotting.network import plot_network_solution
 from plotting.utility import (
     plot_link_utility_bars,
-    plot_utility_comparison,
     plot_source_allocation,
+    plot_utility_comparison,
 )
-#from plotting.composite import plot_combined_solution
 
-def _build_network_from_payload(payload):
+
+# --------------------------------------------------------------------------- #
+# Payload -> NetworkX graph
+# --------------------------------------------------------------------------- #
+
+def _build_network_from_payload(payload: dict) -> nx.Graph:
+    """Reconstruct the network (nodes, edges, cached positions) from a payload dict."""
     G = nx.Graph()
 
     for node in payload["network"]["nodes"]:
-        node_id = node["id"]
-        attrs = {"node_type": node.get("node_type")}
-        G.add_node(node_id, **attrs)
+        G.add_node(node["id"], node_type=node.get("node_type"))
 
     for edge in payload["network"]["edges"]:
         G.add_edge(edge["u"], edge["v"], loss=float(edge["loss"]))
 
-    pos = {}
-    for node in payload["network"]["nodes"]:
-        if node.get("pos") is not None:
-            pos[node["id"]] = tuple(node["pos"])
-
+    pos = {
+        node["id"]: tuple(node["pos"])
+        for node in payload["network"]["nodes"]
+        if node.get("pos") is not None
+    }
     if pos:
         G.graph["pos"] = pos
 
     return G
 
 
-def replot_from_payload(payload_path, outdir="outputs_replot"):
+# --------------------------------------------------------------------------- #
+# Main entry points
+# --------------------------------------------------------------------------- #
+
+def replot_from_payload(payload_path: str | Path, outdir: str | Path = "outputs_replot") -> dict:
+    """Load ``payload_path`` and regenerate every plot the pipeline produces."""
     payload = load_json(payload_path)
 
     outdir = Path(outdir)
@@ -51,7 +72,6 @@ def replot_from_payload(payload_path, outdir="outputs_replot"):
         plot_network_solution(network, best, outdir=outdir)
         plot_link_utility_bars(best, outdir=outdir)
         plot_source_allocation(best, sources, outdir=outdir)
-        #plot_combined_solution(network, best, sources, outdir=outdir)
 
     if results:
         plot_utility_comparison(results, outdir=outdir)
@@ -65,7 +85,7 @@ def replot_from_payload(payload_path, outdir="outputs_replot"):
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--payload",
