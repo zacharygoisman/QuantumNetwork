@@ -184,10 +184,10 @@ def run_pipeline(cfg):
         plot_network_solution(network, best, outdir=outdir)
 
     if results:
-        plot_link_utility_bars(best, outdir=outdir)
+        plot_link_utility_bars(cfg, best, outdir=outdir)
         plot_utility_comparison(results, outdir=outdir)
 
-    plot_source_allocation(best, sources, outdir=outdir)
+    plot_source_allocation(cfg, best, sources, outdir=outdir)
 
     # 10. Save normalized replot payload
     summary = {

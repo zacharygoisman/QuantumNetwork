@@ -214,7 +214,7 @@ def contention():
         fidelity_limit=[0.9320997273968529, 0.9050930112698425],
         dark_count_rate=[685.3686678691192, 890.5016916171851, 564.1122800179337, 342.4765797067348],
         random_seed=7,
-        max_combos=20,
+        max_combos=21,
         n_paths_per_leg=4,
     )
 

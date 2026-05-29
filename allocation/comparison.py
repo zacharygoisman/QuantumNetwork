@@ -35,7 +35,24 @@ from scipy.optimize import brentq, fsolve
 # --------------------------------------------------------------------------- #
 # Styling
 # --------------------------------------------------------------------------- #
-FS = 18  # single readable font size shared by all plot text
+FS = 28  # one readable size for all text
+
+# Combined-figure export controls. Inkscape uses 96 px per inch by default.
+COMBINED_WIDTH_PX = 1906.394
+INKSCAPE_PX_PER_INCH = 96.0
+COMBINED_FIG_WIDTH = COMBINED_WIDTH_PX / INKSCAPE_PX_PER_INCH
+COMBINED_MARKER_SIZE = 150
+COMBINED_MARKER_LINEWIDTH = 1.6
+# Give the right-hand utility/allocation column more room inside the fixed SVG width.
+COMBINED_RIGHT_WIDTH_BOOST = 1.20
+# Make the two right-hand panels taller so the allocation legend has more vertical breathing room.
+COMBINED_RIGHT_HEIGHT_BOOST = 1.12
+
+
+def save_svg_exact(fig, path):
+    """Save without tight bbox cropping so the combined SVG keeps its physical width."""
+    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+    fig.savefig(path, dpi=300, bbox_inches=None)
 
 
 # =========================================================================== #
@@ -638,9 +655,20 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
         rows = (l + cols - 1) // cols
         left_wspace, left_hspace = 0.14, 0.14
 
-    right_fig_w = 6.4
+    right_fig_w = 6.4 * COMBINED_RIGHT_WIDTH_BOOST
     single_right_h = 5.2
     right_hspace_frac = 0.12
+    right_fig_h = single_right_h * (2 + right_hspace_frac)
+
+    # Scale only the combined figure to the requested Inkscape width.
+    # The standalone/separate plots keep their original sizes and save behavior.
+    # The right-column boost reallocates more of the fixed width to the two bar plots.
+    base_fig_width = left_fig_w + right_fig_w
+    combined_scale = COMBINED_FIG_WIDTH / base_fig_width
+    left_fig_w *= combined_scale
+    left_fig_h *= combined_scale
+    right_fig_w *= combined_scale
+    single_right_h *= combined_scale * COMBINED_RIGHT_HEIGHT_BOOST
     right_fig_h = single_right_h * (2 + right_hspace_frac)
 
     fig_width = left_fig_w + right_fig_w
@@ -651,7 +679,7 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
     outer = fig.add_gridspec(
         1, 2,
         width_ratios=[left_fig_w, right_fig_w],
-        wspace=0.12,
+        wspace=0.09,
         left=0.055,
         right=0.985,
         bottom=0.085,
@@ -661,8 +689,8 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
     # ---------------- Left column ----------------
     left_outer = outer[0, 0].subgridspec(
         2, 1,
-        height_ratios=[0.10, 0.90],
-        hspace=0.02
+        height_ratios=[0.14, 0.86],
+        hspace=0.03
     )
     ax_left_leg = fig.add_subplot(left_outer[0, 0])
     ax_left_leg.axis('off')
@@ -678,11 +706,22 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
         for c in range(cols):
             axs[r, c] = fig.add_subplot(left_sub[r, c])
 
-    line_handles, line_labels = [], []
-    proxy_hline = Line2D([0], [0], color='k', linestyle='dotted', linewidth=0.8,
+    # Use explicit proxy handles for the combined-figure legend.
+    # This avoids SVG/viewer quirks where handles copied from plotted axes can appear missing.
+    proxy_fidelity = Line2D([0], [0], color=matlab_blue, linewidth=2.0, label='Fidelity')
+    proxy_ebr = Line2D([0], [0], color=matlab_orang, linewidth=2.0,
+                       label=r'EBR/EBR$_\text{max}$')
+    proxy_hline = Line2D([0], [0], color='k', linestyle='dotted', linewidth=1.2,
                          label='Fidelity Threshold')
-    proxy_vline = Line2D([0], [0], color='k', linestyle='--', linewidth=0.8,
+    proxy_vline = Line2D([0], [0], color='k', linestyle='--', linewidth=1.2,
                          label='Max Allowed Flux')
+    line_handles = [proxy_fidelity, proxy_ebr, proxy_hline, proxy_vline]
+    line_labels = [
+        'Fidelity',
+        r'EBR/EBR$_\text{max}$',
+        'Fidelity Threshold',
+        'Max Allowed Flux',
+    ]
 
     mu_total = 1.2 / tau
     mu_channel_array = [mu_determined[i] / tau for i in range(len(channel_numbers))]
@@ -713,7 +752,7 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
     # Explicit x tick labels helps avoid 0.00/0.70 collisions looking worse than needed
     x_ticklabels = [f"{x:.2f}" for x in x_ticks]
 
-    marker_size = 80  # larger markers for APOPT points
+    marker_size = COMBINED_MARKER_SIZE  # larger markers for APOPT points
 
     for link_idx in range(l):
         r, c = divmod(link_idx, cols)
@@ -760,15 +799,6 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
         line1, = ax.plot(tau * mu, fidelity, c=matlab_blue)
         line2, = ax.plot(tau * mu, rate, c=matlab_orang)
 
-        if not line_handles:
-            line_handles.extend([line1, line2, proxy_hline, proxy_vline])
-            line_labels.extend([
-                'Fidelity',
-                r'EBR/EBR$_\text{max}$',
-                'Fidelity Threshold',
-                'Max Allowed Flux',
-            ])
-
         for ki in range(len(channel_numbers)):
             alloc = floored_ratio_array[ki][link_idx]
             marker = pick_marker(ki)
@@ -788,7 +818,7 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
                 s=marker_size,
                 facecolors='none',
                 edgecolors=matlab_blue,
-                linewidths=1.6,
+                linewidths=COMBINED_MARKER_LINEWIDTH,
                 clip_on=False,
                 zorder=3
             )
@@ -798,7 +828,7 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
                 s=marker_size,
                 facecolors='none',
                 edgecolors=matlab_orang,
-                linewidths=1.6,
+                linewidths=COMBINED_MARKER_LINEWIDTH,
                 clip_on=False,
                 zorder=3
             )
@@ -846,9 +876,9 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
         fontsize=legend_fs,
         columnspacing=0.8,
         handletextpad=0.4,
-        handlelength=1.4,
-        borderpad=0.3,
-        labelspacing=0.3,
+        handlelength=1.8,
+        borderpad=0.35,
+        labelspacing=0.35,
     )
 
     # ---------------- Right column ----------------
@@ -1026,7 +1056,7 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
         right_col_handles,
         right_col_labels,
         loc='upper left',
-        bbox_to_anchor=(0.43, 0.995),
+        bbox_to_anchor=(0.50, 0.995),
         fontsize=legend_fs,
         frameon=True,
         fancybox=True,
@@ -1039,7 +1069,7 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
         handletextpad=0.4,
     )
 
-    fig.savefig(f'outputs/comp_combined_{case_num}.svg', dpi=300)
+    save_svg_exact(fig, f'outputs/comp_combined_{case_num}.svg')
     plt.close(fig)
 
 

@@ -244,9 +244,8 @@ def plot_network_solution_ring(
     combo = sorted_options_by_link(best_result.get("combo", []))
     allocation = best_result.get("allocation", {}) or {}
 
-    # Slightly taller than the standard plot so users separated onto outer
-    # rings still have vertical room.
-    fig, ax = make_figure(figsize=(12, 9))
+    # Make the plot taller to give more vertical room for separated users
+    fig, ax = make_figure(figsize=(19, 10))
     pos = _layout(network)
 
     nx.draw_networkx_nodes(
