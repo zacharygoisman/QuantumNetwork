@@ -100,7 +100,9 @@ def _best_rows(best_result: dict[str, Any] | None) -> list[dict[str, Any]]:
 
     return rows
 
-
+# --------------------------------------------------------------------------- #
+# Public: link utility bars
+# --------------------------------------------------------------------------- #
 def plot_link_utility_bars(cfg,
     best_result: dict[str, Any] | None,
     outdir: str | Path = "outputs",
