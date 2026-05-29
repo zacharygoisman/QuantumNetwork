@@ -512,7 +512,7 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
 
     ax.yaxis.set_major_locator(MaxNLocator(nbins=3, integer=True))
     ax.set_ylabel(r'Allocated Channels $K_\ell$', fontsize=FS)
-    ax.set_xlabel(r'$Total Channels $K$', fontsize=FS)
+    ax.set_xlabel(r'Total Channels $K$', fontsize=FS)
 
     leg_cols = 2 if max_links >= 12 else 1
     ax.legend(loc='upper left', bbox_to_anchor=(-0.00, 1.1), fontsize=FS,
@@ -982,8 +982,8 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
         bottom += alloc_matrix[:, i]
         bar_handles_map[lbl] = bc[0]
 
-    ax_chan.set_ylabel(r'No. of Channels $K_\ell$', fontsize=FS)
-    ax_chan.set_xlabel(r'$K_\ell$', fontsize=FS)
+    ax_chan.set_ylabel(r'Allocated Channels $K_\ell$', fontsize=FS)
+    ax_chan.set_xlabel(r'Total Channels $K$', fontsize=FS)
     ax_chan.set_ylim(0, 96)
     ax_chan.set_yticks([0, 48, 96])
     ax_chan.set_yticklabels(['0', '48', '96'])
