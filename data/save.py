@@ -14,12 +14,14 @@ from typing import Any
 
 
 def ensure_output_dir(path="outputs"):
+    """Create the output directory if needed and return it as a Path."""
     out = Path(path)
     out.mkdir(parents=True, exist_ok=True)
     return out
 
 
 def _jsonable(obj: Any):
+    """Recursively convert dataclasses, Paths, dicts and sequences into JSON-safe values."""
     if is_dataclass(obj):
         return _jsonable(asdict(obj))
 
@@ -36,6 +38,7 @@ def _jsonable(obj: Any):
 
 
 def save_json(data, filepath):
+    """Serialize data to JSON-safe form and write it to filepath (creating parent dirs)."""
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, "w", encoding="utf-8") as f:
@@ -43,18 +46,21 @@ def save_json(data, filepath):
 
 
 def load_json(filepath):
+    """Read and parse a JSON file, returning the decoded object."""
     filepath = Path(filepath)
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def save_df(df, filepath):
+    """Write a DataFrame to CSV at filepath (creating parent dirs), without the index."""
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(filepath, index=False)
 
 
 def serialize_network(network):
+    """Convert a network graph into a JSON-safe {nodes, edges} dict with positions and losses."""
     pos = network.graph.get("pos", {})
 
     nodes = []
@@ -81,6 +87,9 @@ def serialize_network(network):
 
 
 def serialize_result(result):
+    """Convert a single combo result into a JSON-safe dict, resolving each option's
+    allocation/assignment from the result-level maps (keyed by id(opt) or index) or
+    the option's own embedded data. Returns None when result is None."""
     if result is None:
         return None
 
@@ -119,6 +128,7 @@ def serialize_result(result):
 
 
 def serialize_results(results):
+    """Serialize a list of results, returning an empty list when results is falsy."""
     return [serialize_result(r) for r in (results or [])]
 
 
@@ -132,6 +142,8 @@ def build_replot_payload(
     results_full,
     summary,
 ):
+    """Assemble a single JSON-safe payload bundling the config, network, sources,
+    links, best result, full results and summary for later replotting."""
     return {
         "cfg": _jsonable(cfg),
         "network": serialize_network(network),
