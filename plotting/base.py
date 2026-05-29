@@ -39,10 +39,6 @@ GEM: list[str] = [
     "#017501", "#FF0000", "#B526FF", "#FF00FF", "#000000",
 ]
 
-#: Light gray used for the unassigned / surplus bin in the source-allocation
-#: plot. Bright enough to read against black borders without dominating the
-#: assigned-link colors.
-NULL_LINK_GRAY = "#EDEDED"
 
 # Shared publication font sizes. Use these everywhere so the standalone
 # figures and the composite figure have matching typography.
