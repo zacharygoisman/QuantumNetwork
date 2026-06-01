@@ -188,7 +188,7 @@ def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True):
         mu_hi = (-B + sqrtD) / (2.0 * A)
         return max(mu_hi, 1e-9)
 
-    mu_star = (
+    mu_star = (minlp_maximum_iterations
         min(mu_upper_for_link(i, k_int[i]) for i in range(N_links))
         if N_links > 0
         else float(mu.value[0])
