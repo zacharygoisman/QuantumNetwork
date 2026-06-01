@@ -25,6 +25,10 @@ _ALLOC_CACHE_MAX = 8192
 
 
 def allocate_combo(combo, network, sources, cfg):
+    """Allocate channels for a combo by solving each source's MINLP independently
+    (with caching) and summing the per-source utilities. Returns a dict with
+    success, total utility and a per-option allocation map, or {"success": False}
+    if any source sub-problem is infeasible."""
     by_source = defaultdict(list)
 
     # Group options by source
@@ -169,6 +173,7 @@ def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True):
 
     # Closed-form mu* from fidelity equalities (upper root, then min across links)
     def mu_upper_for_link(i, k_i):
+        """Closed-form upper mu root where link i meets its fidelity limit at k_i channels."""
         F = fidelity_limit[i]
         s = y1[i] + y2[i]
         p = y1[i] * y2[i]
