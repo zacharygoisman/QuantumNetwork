@@ -71,6 +71,8 @@ def build_path_options(network, links, sources, cfg):
     return all_link_options
 
 def _user_dark_count_map(network, cfg):
+    """Map each user node to its dark-count rate, ordered by the numeric suffix in the
+    node name. Raises ValueError if the count of users doesn't match cfg.dark_count_rate."""
     user_nodes = [
         str(n) for n, data in network.nodes(data=True)
         if data.get("node_type") == "user" or str(n).startswith("U")

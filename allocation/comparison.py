@@ -1,6 +1,22 @@
-# comparison.py
-# Recreated to preserve the same allocation-only functionality as compare.py,
-# with the same hard-coded cases and the same output plots.
+"""
+allocation/comparison.py
+========================
+
+Allocation-only comparison study.
+
+Reproduces the hard-coded benchmark cases (Cases 1-4) and renders the matching
+output figures. For each total-channel budget ``K`` the module:
+
+1. Solves a per-link channel allocation with GEKKO (APOPT MINLP solver),
+   optionally pruning low-capacity links when doing so improves utility.
+2. Records the resulting fluxes, fidelities and normalized rates.
+3. Saves the link-fidelity, channel-bar, rate-utility and combined figures
+   into the ``outputs/`` directory.
+
+Run directly to reproduce a case::
+
+    python -m allocation.comparison
+"""
 
 import contextlib
 import math
@@ -16,6 +32,9 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedLocator, MaxNLocator
 from scipy.optimize import brentq, fsolve
 
+# --------------------------------------------------------------------------- #
+# Styling
+# --------------------------------------------------------------------------- #
 FS = 28  # one readable size for all text
 
 # Combined-figure export controls. Inkscape uses 96 px per inch by default.
@@ -36,7 +55,9 @@ def save_svg_exact(fig, path):
     fig.savefig(path, dpi=300, bbox_inches=None)
 
 
-
+# =========================================================================== #
+# Link physics & channel-count helpers
+# =========================================================================== #
 def _k_int_from_vars(k_vars, K):
     """Round/clip integer k and repair sum(k) <= K (no equation changes)."""
     raw = [kv.value[0] for kv in k_vars]
@@ -113,6 +134,9 @@ def compute_R_max_full(y1_val, y2_val):
 
 
 
+# =========================================================================== #
+# Allocation & optimization
+# =========================================================================== #
 def _solve_active_set(K, y1, y2, fidelity_limit, active_idx, initial):
     """Solve GEKKO for a subset of links (active_idx). Returns numeric allocations on active set."""
     y1_a = [y1[i] for i in active_idx]
@@ -292,7 +316,10 @@ def matt_comparison_gecko(K, fidelity_limit, y1, y2, initial):
 
 
 
-def fidelity_rate_plot(k_list, k_vars_array, objective_value_array, mu_determined,
+# =========================================================================== #
+# Plotting
+# =========================================================================== #
+def fidelity_rate_plot(k_list, k_vars_array, mu_determined,
                        tau, y1_array, y2_array, fidelity_limit, text):
     case_num = text[-1]
     xlimit = {'1': 1.2, '2': 0.8, '3': 0.2, '4': 0.7}.get(case_num, 1.0)
@@ -1045,6 +1072,10 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
     save_svg_exact(fig, f'outputs/comp_combined_{case_num}.svg')
     plt.close(fig)
 
+
+# =========================================================================== #
+# Flux-capacity helper
+# =========================================================================== #
 @lru_cache(maxsize=None)
 def max_allowed_flux_x(y1, y2, f_th, x_hi=1e6):
     """
@@ -1104,19 +1135,24 @@ def max_allowed_flux_x(y1, y2, f_th, x_hi=1e6):
 
 
 
+# =========================================================================== #
+# Orchestration
+# =========================================================================== #
 def run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial=0.001, skip=False):
     """
-    Inputs:
-    k_list is an array of source channel amounts
-    fidelity_limit is an array of fidelity lower bounds for each link
-    tau is the coincidence time in seconds
-    y1 is the whole y1 array for all links
-    y2 is the whole y2 array for all links
-    text is a string that differentiates the output plots
-    initial is the initial condition mu value that the APOPT solver uses
+    Solve every channel budget in ``k_list`` and render the comparison figures.
+
+    Args:
+        k_list: source channel budgets (K) to evaluate.
+        fidelity_limit: per-link fidelity lower bounds.
+        tau: coincidence time in seconds.
+        y1: y1 parameter for every link.
+        y2: y2 parameter for every link.
+        text: label used to differentiate the output plots (e.g. "Case 4").
+        initial: initial mu value for the APOPT solver.
+        skip: when True, drop the last link for the K=12 and K=24 budgets.
     """
     k_vars_array = []
-    rate_array = []
     mu_array = []
     objective_array = []
 
@@ -1151,7 +1187,6 @@ def run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial=0.001, skip=Fal
         total_flux = float(np.sum(mu_val * alloc_full))
 
         k_vars_array.append(alloc_full)
-        rate_array.append(result['rates_full'])
         mu_array.append(mu_val)
         objective_array.append(result['effective_obj'])
 
@@ -1165,20 +1200,22 @@ def run_plots(k_list, fidelity_limit, tau, y1, y2, text, initial=0.001, skip=Fal
     case_dt = time.perf_counter() - case_t0
     print(f"{text} | total_time={case_dt:.3f}s (per-K avg={np.mean(perK_times)*1000:.1f} ms)")
 
-    fidelity_rate_plot(k_list, k_vars_array, rate_array, mu_array, tau, y1, y2, fidelity_limit, text)
+    fidelity_rate_plot(k_list, k_vars_array, mu_array, tau, y1, y2, fidelity_limit, text)
     channel_bar_plot(k_list, k_vars_array, text)
     rate_bar_plot(k_list, k_vars_array, objective_array, mu_array, tau, y1, y2, fidelity_limit, text)
-    # Also create a combined figure that places link fidelity on the left and
-    # the rate utility + channel bar stacked on the right (saved as comp_combined_{case}).
+
+    # Combined figure: link fidelity on the left, rate-utility + channel bars
+    # stacked on the right (saved as comp_combined_{case}). This is a "nice to
+    # have" extra, so a failure here should not abort the rest of the run.
     try:
         combined_plot(k_list, k_vars_array, objective_array, mu_array, tau, y1, y2, fidelity_limit, text)
     except Exception:
-        # Don't crash the run if combined plotting fails for some reason.
         pass
 
 
 
 def get_case(case_num):
+    """Return the hard-coded parameters for benchmark case 1, 2, 3 or 4."""
     tau = 1e-9
 
     if case_num == 1:
@@ -1234,6 +1271,7 @@ def get_case(case_num):
 
 
 def run_case(case_num):
+    """Look up ``case_num`` and run the full plotting pipeline for it."""
     case = get_case(case_num)
     run_plots(
         case['k_list'],
@@ -1249,7 +1287,7 @@ def run_case(case_num):
 
 
 def main():
-    # Change this to 1, 2, 3, or 4 to reproduce the exact old cases.
+    # Set to 1, 2, 3 or 4 to reproduce the corresponding benchmark case.
     run_case(4)
 
 

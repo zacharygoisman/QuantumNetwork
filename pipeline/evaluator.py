@@ -93,6 +93,7 @@ def evaluate_stream(combo_stream, network, sources, cfg):
     return results
 
 def _evaluate_stream_parallel(combo_stream, network, sources, cfg):
+    """Evaluate combos across a process pool in batches, respecting cfg.max_combos."""
     results = []
     n_seen = 0
     workers = cfg.parallel_workers
@@ -134,6 +135,8 @@ def _evaluate_stream_parallel(combo_stream, network, sources, cfg):
     return results
 
 def evaluate_combo(combo, network, sources, cfg):
+    """Allocate and schedule a single combo, returning a result dict with utility,
+    upper bounds, per-step timing and a validity flag/reason."""
     t0 = time.perf_counter()
 
     combo_path_ub = combo_path_upper_bound(combo) if cfg.use_upper_bound else None
@@ -143,7 +146,6 @@ def evaluate_combo(combo, network, sources, cfg):
     alloc_result = allocate_combo(combo, network, sources, cfg)
     t2 = time.perf_counter()
 
-    alloc_result = allocate_combo(combo, network, sources, cfg)
     if not alloc_result["success"]:
         return {
             "valid": False,
@@ -164,11 +166,6 @@ def evaluate_combo(combo, network, sources, cfg):
     sched_result = check_interference(combo, alloc_result, sources)
     t3 = time.perf_counter()
     if not sched_result["success"]:
-        combo_out = []
-        for i, opt in enumerate(combo):
-            opt_copy = dict(opt)
-            opt_copy["allocation"] = dict(alloc_result["allocation"].get(id(opt), {}))
-            combo_out.append(opt_copy)
         return {
             "valid": False,
             "reason": "contention_failed",
@@ -217,6 +214,7 @@ def evaluate_combo(combo, network, sources, cfg):
 
 
 def select_best(results):
+    """Return the valid result with the highest utility, or None if none are valid."""
     valid = [r for r in results if r.get("valid")]
     if not valid:
         return None

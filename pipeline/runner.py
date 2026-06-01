@@ -30,6 +30,8 @@ from analysis.metrics import per_link_ub_value
 
 
 def run_pipeline(cfg):
+    """Run the full pipeline (build, route, combo, evaluate, select, output) and
+    return the list of evaluated results, or None if no feasible solution is found."""
     print("=== RUN PIPELINE ===")
     t0 = time.time()
 
@@ -161,7 +163,7 @@ def run_pipeline(cfg):
     if results:
         save_df(results_summary_df(results), outdir / "all_results_summary.csv")
         save_df(all_results_link_rows_df(results), outdir / "all_results_links.csv")
-
+        
     save_json(best, outdir / "best_result.json")
     save_df(combo_to_rows(best, combo_idx=None), outdir / "best_links.csv")
 
@@ -208,7 +210,7 @@ def run_pipeline(cfg):
 
     save_json(payload, outdir / "replot_payload.json")
 
-    # Optional: keep a small best_result file too, but normalized
+    # Write the normalized best result on its own for convenience.
     save_json(payload["best_result"], outdir / "best_result.json")
 
     return results
