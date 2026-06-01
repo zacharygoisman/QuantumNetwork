@@ -14,13 +14,8 @@ from pipeline.runner import run_pipeline
 
 def main():
     #cfg = paper_exhaustive()
-<<<<<<< Updated upstream
     cfg = paper_ring()
     #cfg = paper_dense()
-=======
-    #cfg = paper_ring()
-    cfg = paper_dense()
->>>>>>> Stashed changes
     #cfg = two_source_three_users_custom()
     #cfg = contention()
     #cfg = super_dense()
