@@ -28,7 +28,7 @@ def main():
     #cfg = two_source_three_users_custom()
     #cfg = contention()
     #cfg = super_dense()
-    #cfg = star()
+    
 
     cfg = custom_topology_preset(
 
@@ -139,7 +139,7 @@ def main():
         #         Useful when modelling shared-node or relay scenarios.
         require_disjoint_links=False,
     )
-
+    cfg = star()
     result = run_pipeline(cfg)
     #print(result)
 
