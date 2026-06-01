@@ -77,12 +77,12 @@ def super_dense():
 def star():
     #Generic star topology"
     return Config(
-        num_usr=8,
+        num_usr=24,
         num_src=1,
-        num_lnks=4,
-        num_channels= [8],
-        fidelity_limit= [0.7,0.7,0.7,0.7],
-        dark_count_rate= [500.0, 500.0, 500.0, 500.0, 500.0, 500.0, 500.0, 500.0],
+        num_lnks=12,
+        num_channels= [96],
+        fidelity_limit= np.repeat(0.9,12).tolist(),
+        dark_count_rate= np.repeat(500.0, 24).tolist(),
         topology="star",
     )
 
