@@ -37,8 +37,8 @@ def _dense_topology(network, nodes, cfg):
         network.add_edge(u, v)
 
 def _star_topology(network, nodes, cfg):
-    node_src = [f"S0"]  #Only one central source
-    center_node = node_src[0]
+    node_src = "sources" #Only one central source
+    center_node = nodes[node_src][0]
     users = nodes["users"]
     for u in users: #Add every user onto the center node
         network.add_edge(u, center_node)

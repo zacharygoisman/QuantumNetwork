@@ -45,6 +45,10 @@ def best_first_search(all_link_options, cfg):
     (Dijkstra-style) and stopping once cfg.max_combos have been yielded."""
     L = len(all_link_options)
 
+    # If any link has no candidates, no valid combo can be formed.
+    if any(len(opts) == 0 for opts in all_link_options):
+        return
+
     start = tuple(0 for _ in range(L))
 
     heap = [(_combo_priority_from_indices(all_link_options, start), start)]
@@ -78,6 +82,10 @@ def best_first_search(all_link_options, cfg):
 
 def brute_force(all_link_options, cfg):
     """Yield every index combination sorted by priority, stopping at cfg.max_combos."""
+    # If any link has no candidates, no valid combo can be formed.
+    if any(len(opts) == 0 for opts in all_link_options):
+        return
+
     all_indices = list(itertools.product(*(range(len(opts)) for opts in all_link_options)))
 
     all_indices.sort(

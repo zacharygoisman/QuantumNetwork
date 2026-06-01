@@ -16,7 +16,12 @@ from network import topology
 def build_network(cfg):
     """Calls main network funcions to create network and links."""
     network, users, sources = create_network(cfg)
-    links = create_links(users, cfg.num_lnks)
+    links = create_links(
+        users,
+        cfg.num_lnks,
+        link_pairs=cfg.link_pairs,
+        require_disjoint=cfg.require_disjoint_links,
+    )
     return network, sources, links
 
 def create_network(cfg):

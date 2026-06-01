@@ -31,9 +31,9 @@ from gekko import GEKKO
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedLocator, MaxNLocator
 from scipy.optimize import brentq, fsolve
-from comparisons import fidelity_rate_plot
-from comparisons import channel_bar_plot
-from comparisons import rate_bar_plot
+from plotting.comparisons import fidelity_rate_plot
+from plotting.comparisons import channel_bar_plot
+from plotting.comparisons import rate_bar_plot
 
 
 # --------------------------------------------------------------------------- #
