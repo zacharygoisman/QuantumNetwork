@@ -143,7 +143,6 @@ def evaluate_combo(combo, network, sources, cfg):
     alloc_result = allocate_combo(combo, network, sources, cfg)
     t2 = time.perf_counter()
 
-    alloc_result = allocate_combo(combo, network, sources, cfg)
     if not alloc_result["success"]:
         return {
             "valid": False,
