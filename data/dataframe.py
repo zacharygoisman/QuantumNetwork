@@ -11,6 +11,7 @@ import pandas as pd
 
 
 def _alloc_for_opt(result, opt):
+    """Return the allocation dict for a combo option, falling back to opt's own."""
     alloc = result.get("allocation", {}).get(id(opt), {})
     if not alloc and "allocation" in opt:
         alloc = opt["allocation"]
@@ -18,6 +19,7 @@ def _alloc_for_opt(result, opt):
 
 
 def _assign_for_idx(result, i, opt):
+    """Return the assignment dict for combo position i, falling back to opt's own."""
     assign = result.get("assignment", {}).get(i, {})
     if not assign and "assignment" in opt:
         assign = opt["assignment"]
@@ -25,6 +27,7 @@ def _assign_for_idx(result, i, opt):
 
 
 def combo_to_rows(result, combo_idx=None):
+    """Flatten a single combo result into one row per link, returned as a DataFrame."""
     rows = []
     combo = result["combo"]
 
@@ -73,6 +76,7 @@ def combo_to_rows(result, combo_idx=None):
 
 
 def results_summary_df(results):
+    """Build a one-row-per-combo summary DataFrame across all results."""
     rows = []
     for idx, r in enumerate(results):
         combo_idx = r.get("combo_idx", idx)
@@ -108,6 +112,7 @@ def results_summary_df(results):
 
 
 def all_results_link_rows_df(results):
+    """Concatenate the per-link rows of every combo into a single DataFrame."""
     frames = []
     for idx, r in enumerate(results):
         combo_idx = r.get("combo_idx", idx)

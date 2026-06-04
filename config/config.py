@@ -1,6 +1,6 @@
 #config/config.py
 """
-Base configuration class for network settings and presents
+Base configuration class for network settings and presets
 """
 
 #ZHG
@@ -25,7 +25,7 @@ class Config:
     random_seed: int = 41         #Random seed for reproducibility of random topologies and losses
 
     # custom network controls
-    custom_edges: list[tuple | tuple] = field(default_factory=list)
+    custom_edges: list[tuple[str, str] | tuple[str, str, float]] = field(default_factory=list)
     custom_source_channels: dict[str, list[int]] = field(default_factory=dict)
     link_pairs: list[tuple[str, str]] | None = None
     require_disjoint_links: bool = True
@@ -49,7 +49,7 @@ class Config:
 
     #runtime
     use_upper_bound: bool = True     #Whether to use an upper bound on the utility of path combinations to prune the search space during evaluation
-    max_combos: int = 1              #Maximum number of path combinations to evaluate (None for no limit)
+    max_combos: int | None = 1              #Maximum number of path combinations to evaluate (None for no limit)
     verbose: bool = True               #Whether to print verbose output during execution
     parallel: bool = True
     parallel_workers: int | None = None

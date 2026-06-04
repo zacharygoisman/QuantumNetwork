@@ -16,6 +16,7 @@ _SCHED_CACHE_MAX = 4096
 
 
 def _make_edges(path):
+    """Convert a node path into a tuple of canonical (undirected) edges, each sorted."""
     return tuple(tuple(sorted((path[i], path[i + 1]))) for i in range(len(path) - 1))
 
 
