@@ -1,6 +1,23 @@
 #plotting for comparisons
+import math
+import string
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.lines import Line2D
+from matplotlib.ticker import FixedLocator, MaxNLocator
+from scipy.optimize import fsolve
+
+
 def fidelity_rate_plot(k_list, k_vars_array, mu_determined,
                        tau, y1_array, y2_array, fidelity_limit, text):
+    # Deferred to avoid circular import with allocation.comparison.
+    from allocation.comparison import (
+        FS,
+        compute_fidelity_rate,
+        compute_R_max_full,
+        max_allowed_flux_x,
+    )
     case_num = text[-1]
     xlimit = {'1': 1.2, '2': 0.8, '3': 0.2, '4': 0.7}.get(case_num, 1.0)
 
@@ -97,13 +114,13 @@ def fidelity_rate_plot(k_list, k_vars_array, mu_determined,
         rate = rate / max_rate
 
         line1, = ax.plot(tau * mu, fidelity, label='Fidelity', c=matlab_blue)
-        line2, = ax.plot(tau * mu, rate, label=r'EBR/EBR$_\text{max}$', c=matlab_orang)
+        line2, = ax.plot(tau * mu, rate, label='Utility', c=matlab_orang)
 
         if not line_handles:
             line_handles.extend([line1, line2, proxy_hline, proxy_vline])
             line_labels.extend([
                 'Fidelity',
-                r'EBR/EBR$_\text{max}$',
+                'Utility',
                 'Fidelity Threshold',
                 'Max Allowed Flux',
             ])
@@ -166,6 +183,8 @@ def fidelity_rate_plot(k_list, k_vars_array, mu_determined,
 
 
 def channel_bar_plot(channel_numbers, k_vars_array, text):
+    from allocation.comparison import FS
+
     case_num = text[-1]
     channel_str = [str(c) for c in channel_numbers]
     n_bars = len(channel_numbers)
@@ -234,6 +253,8 @@ def channel_bar_plot(channel_numbers, k_vars_array, text):
 
 def rate_bar_plot(channel_numbers, k_vars_array, objective_value,
                   mu_determined, tau, y1_array, y2_array, fidelity_limit, text):
+    from allocation.comparison import FS, compute_R_max_full
+
     case_num = str(text)[-1]
     ylimit_map = {
         '1': [4.9, 5.001],
@@ -314,6 +335,19 @@ def rate_bar_plot(channel_numbers, k_vars_array, objective_value,
 
 def combined_plot(channel_numbers, k_vars_array, objective_value,
                   mu_determined, tau, y1_array, y2_array, fidelity_limit, text):
+    from allocation.comparison import (
+        FS,
+        COMBINED_FIG_WIDTH,
+        COMBINED_MARKER_LINEWIDTH,
+        COMBINED_MARKER_SIZE,
+        COMBINED_RIGHT_HEIGHT_BOOST,
+        COMBINED_RIGHT_WIDTH_BOOST,
+        compute_fidelity_rate,
+        compute_R_max_full,
+        max_allowed_flux_x,
+        save_svg_exact,
+    )
+
     case_num = str(text)[-1]
     l = len(y1_array)
 
@@ -390,7 +424,7 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
     # This avoids SVG/viewer quirks where handles copied from plotted axes can appear missing.
     proxy_fidelity = Line2D([0], [0], color=matlab_blue, linewidth=2.0, label='Fidelity')
     proxy_ebr = Line2D([0], [0], color=matlab_orang, linewidth=2.0,
-                       label=r'EBR/EBR$_\text{max}$')
+                       label='Utility')
     proxy_hline = Line2D([0], [0], color='k', linestyle='dotted', linewidth=1.2,
                          label='Fidelity Threshold')
     proxy_vline = Line2D([0], [0], color='k', linestyle='--', linewidth=1.2,
@@ -398,7 +432,7 @@ def combined_plot(channel_numbers, k_vars_array, objective_value,
     line_handles = [proxy_fidelity, proxy_ebr, proxy_hline, proxy_vline]
     line_labels = [
         'Fidelity',
-        r'EBR/EBR$_\text{max}$',
+        'Utility',
         'Fidelity Threshold',
         'Max Allowed Flux',
     ]

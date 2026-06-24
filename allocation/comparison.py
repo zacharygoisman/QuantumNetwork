@@ -17,7 +17,6 @@ Run directly to reproduce a case::
 
     python -m allocation.comparison
 """
-
 import contextlib
 import math
 import os
@@ -31,9 +30,10 @@ from gekko import GEKKO
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedLocator, MaxNLocator
 from scipy.optimize import brentq, fsolve
-from plotting.comparisons import fidelity_rate_plot
-from plotting.comparisons import channel_bar_plot
-from plotting.comparisons import rate_bar_plot
+from plotting.comparison_plot import fidelity_rate_plot
+from plotting.comparison_plot import channel_bar_plot
+from plotting.comparison_plot import rate_bar_plot
+from plotting.comparison_plot import combined_plot
 
 
 # --------------------------------------------------------------------------- #

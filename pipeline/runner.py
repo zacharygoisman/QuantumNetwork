@@ -46,9 +46,7 @@ def run_pipeline(cfg):
         print(f"Paths computed in {time.time() - t0:.2f}s")
 
     #3. Generate combos
-    total_possible_combos = 1
-    for opts in paths:
-        total_possible_combos *= len(opts)
+    total_possible_combos = ((cfg.n_paths_per_leg ** 2) * len(sources)) ** len(links)
 
     combos_to_test_cap = total_possible_combos
     if cfg.max_combos is not None:
