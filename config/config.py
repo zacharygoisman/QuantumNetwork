@@ -18,6 +18,7 @@ class Config:
     num_lnks: int = 2           #Number of links in the network
     num_edg: int = 10000        #Number of edges in the network (used for random topologies, ignored for structured topologies)
     topology: str = "dense"     #Network topology type (e.g., "dense", "ring", "star")
+    topology_name: str = "random"   #Name of the topology (e.g., "random", "manhattan")
     density: float = 0.1          #Density of the network (used for random topologies, between 0 and 1)
     loss_range: tuple = (1,10) #Range of link losses (min, max) for random assignment (in dB)
     num_channels: list = field(default_factory=lambda: [5, 5])         #Number of available channels per source (list of ints, length should match num_src)

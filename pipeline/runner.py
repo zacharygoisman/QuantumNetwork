@@ -20,12 +20,13 @@ from plotting.network import plot_network_solution
 from plotting.network_ring import plot_network_solution_ring
 from plotting.utility import (
     plot_link_utility_bars,
+    plot_link_normalized_rate_bars,
     plot_utility_comparison,
     plot_source_allocation,
 )
 from plotting.composite import plot_paper_combined_solution_ring
-
-
+from plotting.network_manhattan import plot_manhattan
+from plotting.network_manhattan import BALI_LABEL_MAP
 from analysis.metrics import per_link_ub_value
 
 
@@ -178,11 +179,15 @@ def run_pipeline(cfg):
             font_size=8.0,
             layout="stacked",
         )
+    elif cfg.topology_name == "manhattan":
+        cfg.node_label_map = BALI_LABEL_MAP
+        plot_manhattan(network, best, outdir=outdir)
     else:
         plot_network_solution(network, best, outdir=outdir)
 
     if results:
         plot_link_utility_bars(cfg, best, outdir=outdir)
+        plot_link_normalized_rate_bars(cfg, best, outdir=outdir)
         plot_utility_comparison(results, outdir=outdir)
 
     plot_source_allocation(cfg, best, sources, outdir=outdir)

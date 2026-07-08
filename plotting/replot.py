@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from types import SimpleNamespace
 
 import networkx as nx
 
@@ -68,10 +69,16 @@ def replot_from_payload(payload_path: str | Path, outdir: str | Path = "outputs_
     results = payload.get("results_full", [])
     sources = payload.get("sources", {})
 
+    cfg = SimpleNamespace(topology=payload.get("topology", "custom"))
+    if payload.get("topology_name") == "manhattan_ilec" or payload.get("topology") == "manhattan":
+        from plotting.network_manhattan import BALI_LABEL_MAP
+        cfg.node_label_map = BALI_LABEL_MAP
+        network.graph["node_label_map"] = BALI_LABEL_MAP
+
     if best:
         plot_network_solution(network, best, outdir=outdir)
-        plot_link_utility_bars(best, outdir=outdir)
-        plot_source_allocation(best, sources, outdir=outdir)
+        plot_link_utility_bars(cfg, best, outdir=outdir)
+        plot_source_allocation(cfg, best, sources, outdir=outdir)
 
     if results:
         plot_utility_comparison(results, outdir=outdir)
