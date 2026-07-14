@@ -65,6 +65,7 @@ def combo_to_rows(result, combo_idx=None):
             "allocated_k": alloc.get("k"),
             "mu": alloc.get("mu"),
             "prelog_rate": alloc.get("prelog_rate"),
+            "link_utility": alloc.get("link_utility"),
 
             "swap": assign.get("swap"),
             "channels": assign.get("channels"),

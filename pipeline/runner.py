@@ -117,25 +117,25 @@ def run_pipeline(cfg):
     per_link_pct = []
 
     for i, opt in enumerate(best.get("combo", [])):
-        alloc = alloc_map.get(id(opt), {})
+        alloc = alloc_map.get(id(opt), {}) if alloc_map else {}
         if not alloc:
             alloc = alloc_map.get(i, {})
         if not alloc and "allocation" in opt:
             alloc = opt["allocation"]
-        actual_rate = alloc.get("prelog_rate")
 
-        _, _, ub_rate = per_link_ub_value(
-            y1=float(opt["y1"]),
-            y2=float(opt["y2"]),
-            f_min=float(opt.get("fidelity_limit", 0.5)),
-            x_one_channel_cap=None,
-            on_infeasible="none",
-        )
+        actual_log_rate = alloc.get("link_utility")
+        best_log_rate = opt.get("link_ub")
 
-        if actual_rate is not None and ub_rate is not None and ub_rate > 0:
-            per_link_pct.append(100.0 * float(actual_rate) / float(ub_rate))
+        if actual_log_rate is not None and best_log_rate is not None:
+            actual_log_rate = float(actual_log_rate)
+            best_log_rate = float(best_log_rate)
 
-    avg_link_utility_gap = (total_utility_upper_bound_limit-total_network_utility)/len(links)
+            # 100 * R_actual / R_best_infinite
+            per_link_pct.append(100.0 * 10.0 ** (actual_log_rate - best_log_rate))
+
+    avg_link_utility_gap = (
+        total_utility_upper_bound_limit - total_network_utility
+    ) / len(links)
 
     avg_pct_of_link_upper_bound = (
         sum(per_link_pct) / len(per_link_pct) if per_link_pct else float("nan")
@@ -150,10 +150,9 @@ def run_pipeline(cfg):
         f"{avg_link_utility_gap:.6e}"
     )
     print(
-        "Average link rate infinite resource maximum: "
-        f"{avg_pct_of_link_upper_bound:.6e}"
+        "Average percent of best-path infinite-resource rate: "
+        f"{avg_pct_of_link_upper_bound:.6f}%"
     )
-
     # 7. Output dir
     outdir = ensure_output_dir(cfg.output_directory)
 
@@ -198,7 +197,7 @@ def run_pipeline(cfg):
         "total_network_utility": total_network_utility,
         "total_utility_upper_bound_limit": total_utility_upper_bound_limit,
         "avg_link_utility_gap": avg_link_utility_gap,
-        "avg_link_rate_infinite_resource_maximum": avg_pct_of_link_upper_bound,
+        "avg_pct_of_best_path_infinite_resource_rate": avg_pct_of_link_upper_bound,
     }
 
     payload = build_replot_payload(

@@ -24,7 +24,7 @@ def main():
 
     #edit custom_topology.py in config
     #cfg = my_custom_network()  
-    #cfg = manhattan_ilec()
+    cfg = manhattan_ilec()
 
     #cfg = star()
     result = run_pipeline(cfg)

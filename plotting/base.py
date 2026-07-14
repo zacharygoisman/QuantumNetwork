@@ -469,10 +469,21 @@ def per_link_expr(option: dict[str, Any], allocation_record: dict[str, Any] | No
 
 def per_link_log_utility(option: dict[str, Any], allocation_record: dict[str, Any] | None) -> float:
     """``log10`` of :func:`per_link_expr`; returns NaN for non-positive expressions."""
+    if allocation_record is not None and "link_utility" in allocation_record:
+        return safe_float(allocation_record.get("link_utility"), float("nan"))
+
     expr = per_link_expr(option, allocation_record)
     if not np.isfinite(expr) or expr <= 0:
         return float("nan")
-    return math.log10(expr)
+
+    val = math.log10(expr)
+
+    # Fallback physical correction if available
+    if "total_loss" in option and "tau" in option:
+        val -= safe_float(option.get("total_loss"), 0.0) / 10.0
+        val -= math.log10(safe_float(option.get("tau"), 1.0))
+
+    return val
 
 
 # --------------------------------------------------------------------------- #

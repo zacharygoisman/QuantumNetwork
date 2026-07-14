@@ -51,7 +51,6 @@ from .base import (
     display_legend_link_label,
     display_source_label,
 )
-from analysis.metrics import per_link_ub_value
 
 # --------------------------------------------------------------------------- #
 # Cap-profile sampling defaults (source allocation plot)
@@ -232,23 +231,11 @@ def plot_link_normalized_rate_bars(
         if not alloc and "allocation" in opt:
             alloc = opt["allocation"]
 
-        actual_rate = safe_float(alloc.get("prelog_rate"), float("nan"))
+        actual_log_rate = per_link_log_utility(opt, alloc)
+        best_log_rate = safe_float(opt.get("link_ub"), float("nan"))
 
-        _, _, ub_rate = per_link_ub_value(
-            y1=float(opt["y1"]),
-            y2=float(opt["y2"]),
-            f_min=float(opt.get("fidelity_limit", 0.5)),
-            x_one_channel_cap=None,
-            on_infeasible="none",
-        )
-
-        if (
-            np.isfinite(actual_rate)
-            and ub_rate is not None
-            and np.isfinite(float(ub_rate))
-            and float(ub_rate) > 0.0
-        ):
-            normalized_pct = actual_rate / float(ub_rate)
+        if np.isfinite(actual_log_rate) and np.isfinite(best_log_rate):
+            normalized_pct = 10.0 ** (actual_log_rate - best_log_rate)
         else:
             normalized_pct = float("nan")
 
@@ -307,7 +294,7 @@ def plot_link_normalized_rate_bars(
         fontsize=PLOT_TICK_SIZE,
     )
 
-    ax.set_ylabel(r"$R_\ell/R_{\ell}^{\max}$", fontsize=PLOT_LABEL_SIZE)
+    ax.set_ylabel(r"$R_\ell/R_{\ell}^{\infty}$", fontsize=PLOT_LABEL_SIZE)
 
     ax.tick_params(axis="x", which="both", bottom=False, top=False, length=0)
     ax.tick_params(axis="y", which="both", left=True, right=False, length=6, width=1)
