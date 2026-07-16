@@ -178,13 +178,17 @@ def two_source_three_users_custom(edge_losses, num_channels, fidelity_limit, dar
 
 
 def contention():
-    """Preset: 2 sources, 4 users.
+    """Preset: 2 sources, 4 users -- resource-contention scenario.
 
-    - S0 connected to U0, U1, U2
-    - S1 connected to U0, U1
-    - users are not connected to each other
+    Topology (U1 is a hub through which most traffic must pass):
+        - S1 -- U1        (high-loss link, forces routing pressure)
+        - S1 -- S2        (inter-source link)
+        - S2 -- U1        (low-loss link into the hub)
+        - U1 -- U2        (hub to user)
+        - U1 -- U3        (hub to user)
+        - U1 -- U4        (hub to user)
 
-    Use this by setting `cfg = two_source_three_users_custom()` in `main.py`.
+    Use this by setting `cfg = contention()` in `main.py`.
     """
     # custom_edges: (node_a, node_b) [, loss]
     base_edges = [
@@ -196,6 +200,9 @@ def contention():
         ("U1", "U2"),
     ]
 
+    # First edge (S1--U1) is intentionally high loss so S2 becomes the
+    # preferred provider for the hub; remaining edges are all cheap so
+    # the interesting behavior is source-selection, not path-length.
     edge_losses = [10, 1, 1, 1, 1, 1]
 
     if edge_losses is not None:
@@ -219,13 +226,14 @@ def contention():
     )
 
 def simple_contention():
-    """Preset: 2 sources, 4 users.
+    """Preset: 2 sources, 4 users -- lossless variant of `contention()`.
 
-    - S0 connected to U0, U1, U2
-    - S1 connected to U0, U1
-    - users are not connected to each other
+    Same graph shape as `contention()` but with all edges lossless except
+    the S1--U1 link. Used as a clean baseline to isolate scheduler /
+    allocator behavior from loss-driven effects, and to demonstrate
+    contention over fixed link pairs (U1-U3, U2-U4).
 
-    Use this by setting `cfg = two_source_three_users_custom()` in `main.py`.
+    Use this by setting `cfg = simple_contention()` in `main.py`.
     """
     # custom_edges: (node_a, node_b) [, loss]
     base_edges = [
@@ -238,6 +246,8 @@ def simple_contention():
     ]
     
 
+    # Only S1--U1 carries loss; every other edge is ideal so the outcome
+    # is driven purely by allocation/scheduling, not by channel quality.
     edge_losses = [10, 0, 0, 0, 0, 0]
 
     if edge_losses is not None:
@@ -259,6 +269,8 @@ def simple_contention():
         max_combos=21,
         n_paths_per_leg=4,
         tau=1.0,
+        # Fixed user pairs so the two links always target the same demand
+        # regardless of random seed -- required to reproduce the figure.
         link_pairs=[
             ("U1", "U3"),
             ("U2", "U4"),
@@ -329,8 +341,9 @@ def manhattan_ilec():
 
     node_map = {**source_map, **user_map}
 
-    # Upper-triangular distance matrix from Bali et al. Table I.
-    # Entries omitted in the table are represented by None and skipped.
+    # Upper-triangular distance matrix from Bali et al. Table I. Only the
+    # entries present in the table are listed; unlisted node pairs simply
+    # do not get an edge.
     distances_km = {
         ("A", "B"): 0.304,
         ("A", "C"): 1.184,
@@ -473,7 +486,7 @@ def manhattan_ilec():
         custom_edges=edges,
         topology_name="manhattan",
 
-        # Similar scale to your current dense example.
+        # 15 channels per source, matching the scale used in the dense preset.
         num_channels=[15, 15, 15],
 
         # Fixed link pairs so the figure/result are reproducible.

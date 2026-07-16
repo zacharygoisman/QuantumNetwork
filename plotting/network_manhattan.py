@@ -166,10 +166,12 @@ def manhattan_ilec_schematic_pos():
 
 def manhattan_ilec_original_label_pos() -> Position:
     """
-    Same schematic layout, but keyed by original ILEC labels A-Q.
+    Fallback schematic layout keyed by the original ILEC labels A-Q.
 
-    Use this only if your graph nodes are literally A, B, ..., Q instead of
-    the QuantumNetwork-style S1/U1 mapping.
+    Note: these coordinates use a portrait (tall/narrow) orientation and are
+    NOT the same as :func:`manhattan_ilec_schematic_pos`, which is landscape.
+    Only used if the graph nodes are literally A, B, ..., Q instead of the
+    QuantumNetwork-style S1/U1 mapping.
     """
     return {
         "A": (-0.72, 0.00),

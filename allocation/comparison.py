@@ -325,9 +325,10 @@ def matt_comparison_gecko(K, fidelity_limit, y1, y2, initial):
 @lru_cache(maxsize=None)
 def max_allowed_flux_x(y1, y2, f_th, x_hi=1e6):
     """
-    Smallest "total possible flux capacity" criterion:
-    returns the LARGEST x>=0 such that fidelity(x) == f_th (upper crossing).
-    If f_th <= 0.25, fidelity constraint is inactive -> capacity = +inf.
+    Return the LARGEST x>=0 at which fidelity(x) == f_th (the upper crossing);
+    this is the maximum dimensionless flux the link can carry while still
+    meeting its fidelity threshold. If f_th <= 0.25 the fidelity constraint
+    is inactive so capacity is +inf.
     """
     f_th = float(f_th)
     if f_th <= 0.25:

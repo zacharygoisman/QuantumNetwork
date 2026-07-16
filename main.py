@@ -18,7 +18,8 @@ def main():
     #edit custom_topology.py in config
     #cfg = my_custom_network()  
 
-    #Paper Figures
+    # Paper figures. Only the last assignment actually runs; comment out
+    # the ones below the one you want to reproduce.
     cfg = simple_contention()
     cfg = paper_ring()
     cfg = manhattan_ilec()

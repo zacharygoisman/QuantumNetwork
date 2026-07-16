@@ -117,6 +117,9 @@ def run_pipeline(cfg):
     per_link_pct = []
 
     for i, opt in enumerate(best.get("combo", [])):
+        # Resolve the allocation record for this option. Different call sites
+        # key by id(opt), by positional index, or embed it under opt["allocation"];
+        # try each fallback in order so this works across code paths.
         alloc = alloc_map.get(id(opt), {}) if alloc_map else {}
         if not alloc:
             alloc = alloc_map.get(i, {})
@@ -130,7 +133,10 @@ def run_pipeline(cfg):
             actual_log_rate = float(actual_log_rate)
             best_log_rate = float(best_log_rate)
 
-            # 100 * R_actual / R_best_infinite
+            # Both quantities are log10-rates, so their difference is
+            # log10(R_actual / R_best_infinite). 10**diff recovers the ratio,
+            # and * 100 expresses it as a percent of the infinite-resource
+            # per-link upper bound.
             per_link_pct.append(100.0 * 10.0 ** (actual_log_rate - best_log_rate))
 
     avg_link_utility_gap = (
@@ -169,13 +175,19 @@ def run_pipeline(cfg):
         )
         save_json(best, outdir / "best_result.json")
 
+        # Per-link CSV of the best combo. `normalized_rate` = R_actual /
+        # R_best_infinite, computed from the difference of the two log10
+        # columns so it's directly comparable across links with different
+        # baseline rates.
         best_links_df = combo_to_rows(best, combo_idx=None)
         best_links_df["normalized_rate"] = 10.0 ** (
             best_links_df["link_utility"] - best_links_df["link_ub"]
         )
         save_df(best_links_df, outdir / "best_links.csv")
 
-    # 9. Plots first so node positions get cached into network.graph["pos"]
+    # 9. Plots. Rendering happens before the replot payload in step 10 so
+    # that any layout positions computed here are cached into
+    # network.graph["pos"] and can be persisted for reproducible re-plots.
     if cfg.topology == "ring":
         plot_network_solution_ring(network, best, outdir=outdir)
         plot_paper_combined_solution_ring(
@@ -189,6 +201,8 @@ def run_pipeline(cfg):
             layout="stacked",
         )
     elif cfg.topology_name == "manhattan":
+        # Attach the Bali et al. A-Q label mapping so the plot uses the
+        # original ILEC node names instead of the internal S*/U* IDs.
         cfg.node_label_map = BALI_LABEL_MAP
         plot_manhattan(network, best, outdir=outdir)
     else:
