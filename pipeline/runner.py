@@ -20,12 +20,13 @@ from plotting.network import plot_network_solution
 from plotting.network_ring import plot_network_solution_ring
 from plotting.utility import (
     plot_link_utility_bars,
+    plot_link_normalized_rate_bars,
     plot_utility_comparison,
     plot_source_allocation,
 )
 from plotting.composite import plot_paper_combined_solution_ring
-
-
+from plotting.network_manhattan import plot_manhattan
+from plotting.network_manhattan import BALI_LABEL_MAP
 from analysis.metrics import per_link_ub_value
 
 
@@ -116,25 +117,25 @@ def run_pipeline(cfg):
     per_link_pct = []
 
     for i, opt in enumerate(best.get("combo", [])):
-        alloc = alloc_map.get(id(opt), {})
+        alloc = alloc_map.get(id(opt), {}) if alloc_map else {}
         if not alloc:
             alloc = alloc_map.get(i, {})
         if not alloc and "allocation" in opt:
             alloc = opt["allocation"]
-        actual_rate = alloc.get("prelog_rate")
 
-        _, _, ub_rate = per_link_ub_value(
-            y1=float(opt["y1"]),
-            y2=float(opt["y2"]),
-            f_min=float(opt.get("fidelity_limit", 0.5)),
-            x_one_channel_cap=None,
-            on_infeasible="none",
-        )
+        actual_log_rate = alloc.get("link_utility")
+        best_log_rate = opt.get("link_ub")
 
-        if actual_rate is not None and ub_rate is not None and ub_rate > 0:
-            per_link_pct.append(100.0 * float(actual_rate) / float(ub_rate))
+        if actual_log_rate is not None and best_log_rate is not None:
+            actual_log_rate = float(actual_log_rate)
+            best_log_rate = float(best_log_rate)
 
-    avg_link_utility_gap = (total_utility_upper_bound_limit-total_network_utility)/len(links)
+            # 100 * R_actual / R_best_infinite
+            per_link_pct.append(100.0 * 10.0 ** (actual_log_rate - best_log_rate))
+
+    avg_link_utility_gap = (
+        total_utility_upper_bound_limit - total_network_utility
+    ) / len(links)
 
     avg_pct_of_link_upper_bound = (
         sum(per_link_pct) / len(per_link_pct) if per_link_pct else float("nan")
@@ -149,21 +150,30 @@ def run_pipeline(cfg):
         f"{avg_link_utility_gap:.6e}"
     )
     print(
-        "Average link rate infinite resource maximum: "
-        f"{avg_pct_of_link_upper_bound:.6e}"
+        "Average percent of best-path infinite-resource rate: "
+        f"{avg_pct_of_link_upper_bound:.6f}%"
     )
-
     # 7. Output dir
     outdir = ensure_output_dir(cfg.output_directory)
 
     # 8. CSVs
 
     if results:
-        save_df(results_summary_df(results), outdir / "all_results_summary.csv")
-        save_df(all_results_link_rows_df(results), outdir / "all_results_links.csv")
-        
-    save_json(best, outdir / "best_result.json")
-    save_df(combo_to_rows(best, combo_idx=None), outdir / "best_links.csv")
+        save_df(
+            results_summary_df(results),
+            outdir / "all_results_summary.csv",
+        )
+        save_df(
+            all_results_link_rows_df(results),
+            outdir / "all_results_links.csv",
+        )
+        save_json(best, outdir / "best_result.json")
+
+        best_links_df = combo_to_rows(best, combo_idx=None)
+        best_links_df["normalized_rate"] = 10.0 ** (
+            best_links_df["link_utility"] - best_links_df["link_ub"]
+        )
+        save_df(best_links_df, outdir / "best_links.csv")
 
     # 9. Plots first so node positions get cached into network.graph["pos"]
     if cfg.topology == "ring":
@@ -178,11 +188,15 @@ def run_pipeline(cfg):
             font_size=8.0,
             layout="stacked",
         )
+    elif cfg.topology_name == "manhattan":
+        cfg.node_label_map = BALI_LABEL_MAP
+        plot_manhattan(network, best, outdir=outdir)
     else:
         plot_network_solution(network, best, outdir=outdir)
 
     if results:
         plot_link_utility_bars(cfg, best, outdir=outdir)
+        plot_link_normalized_rate_bars(cfg, best, outdir=outdir)
         plot_utility_comparison(results, outdir=outdir)
 
     plot_source_allocation(cfg, best, sources, outdir=outdir)
@@ -193,7 +207,7 @@ def run_pipeline(cfg):
         "total_network_utility": total_network_utility,
         "total_utility_upper_bound_limit": total_utility_upper_bound_limit,
         "avg_link_utility_gap": avg_link_utility_gap,
-        "avg_link_rate_infinite_resource_maximum": avg_pct_of_link_upper_bound,
+        "avg_pct_of_best_path_infinite_resource_rate": avg_pct_of_link_upper_bound,
     }
 
     payload = build_replot_payload(

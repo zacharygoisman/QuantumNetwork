@@ -76,15 +76,26 @@ def allocate_combo(combo, network, sources, cfg):
             if len(_ALLOC_CACHE) < _ALLOC_CACHE_MAX:
                 _ALLOC_CACHE[cache_key] = cached
 
-        total_utility += cached["obj"]
         for i, o in enumerate(opts):
+            reduced_rate = float(cached["prelog"][i])
+            reduced_log_rate = math.log10(reduced_rate)
+
+            physical_log_rate = (
+                reduced_log_rate
+                - float(o["total_loss"]) / 10.0
+                - math.log10(float(cfg.tau))
+            )
+
+            total_utility += physical_log_rate
+
             allocations[id(o)] = {
                 "source": s,
                 "link": o["link"],
                 "link_idx": o["link_idx"],
                 "k": int(cached["k"][i]),
                 "mu": float(cached["mu"]),
-                "prelog_rate": float(cached["prelog"][i]),
+                "prelog_rate": reduced_rate,
+                "link_utility": physical_log_rate,
             }
 
     return {

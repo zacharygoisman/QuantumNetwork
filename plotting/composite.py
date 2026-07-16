@@ -54,6 +54,10 @@ from .base import (
     safe_float,
     safe_int,
     sorted_options_by_link,
+    display_node_label,
+    display_bar_link_label,
+    display_legend_link_label,
+    display_source_label,
 )
 from .network_ring import _layout as _ring_layout
 from .network_ring import _node_color_map
@@ -167,7 +171,7 @@ def _draw_network_panel(
     nx.draw_networkx_labels(
         network,
         pos,
-        labels={n: entity_mathtext(str(n)) for n in network.nodes()},
+        labels={n: entity_mathtext(display_node_label(network, n)) for n in network.nodes()},
         ax=ax,
         font_size=font_size,
         font_weight="bold",
@@ -246,6 +250,7 @@ def _draw_utility_panel(
     ax: Axes,
     best_result: dict[str, Any] | None,
     *,
+    label_context=None,
     font_size: float,
     tick_size: float,
     show_legend: bool = True,
@@ -303,7 +308,7 @@ def _draw_utility_panel(
     rotate = 0 if len(links) <= 6 else 35
     ha = "center" if rotate == 0 else "right"
     ax.set_xticklabels(
-        [bar_link_label(t) for t in links], rotation=rotate, ha=ha, fontsize=tick_size,
+        [display_bar_link_label(label_context, t) for t in links], rotation=rotate, ha=ha, fontsize=tick_size,
     )
 
     yticks = np.linspace(y_bottom, y_top, 3)
@@ -412,6 +417,7 @@ def _draw_source_allocation_panel(
     best_result: dict[str, Any] | None,
     sources: dict[str, Any],
     *,
+    label_context=None,
     font_size: float,
     legend_size: float,
     show_legend: bool = True,
@@ -512,7 +518,7 @@ def _draw_source_allocation_panel(
         ax.text(
             label_x,
             -0.13 * height,
-            entity_mathtext(str(sname)),
+            entity_mathtext(display_source_label(label_context, sname)),
             ha="center",
             va="top",
             fontsize=font_size,
@@ -536,11 +542,7 @@ def _draw_source_allocation_panel(
                 handles.append(Patch(facecolor=link_to_color[label], edgecolor="black",
                                      label="Unassigned"))
             else:
-                users = re.findall(r"(?i)[us](?:er)?\d+", label)
-                if len(users) >= 2:
-                    nice = f"Link {entity_mathtext(users[0])}{entity_mathtext(users[1])}"
-                else:
-                    nice = label
+                nice = display_legend_link_label(label_context, label)
                 handles.append(Patch(facecolor=link_to_color[label], edgecolor="black",
                                      label=nice))
 
@@ -670,12 +672,14 @@ def plot_paper_combined_solution_ring(
     )
     _draw_utility_panel(
         ax_util, best_result,
+        label_context=network,
         font_size=font_size,
         tick_size=tick_size,
         show_legend=show_utility_legend,
     )
     _draw_source_allocation_panel(
         ax_src, best_result, sources,
+        label_context=network,
         font_size=font_size,
         legend_size=legend_size,
         show_legend=show_source_legend,

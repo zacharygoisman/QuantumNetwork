@@ -32,6 +32,10 @@ from .base import (
     safe_float,
     save_figure,
     sorted_options_by_link,
+    display_node_label,
+    display_link_label,
+    display_source_label,
+    display_bar_link_label,
 )
 
 
@@ -77,12 +81,12 @@ def plot_network_solution(
     combo = sorted_options_by_link(best_result.get("combo", []))
     allocation = best_result.get("allocation", {}) or {}
 
-    fig, ax = make_figure(figsize=(11,9))
+    fig, ax = make_figure(figsize=network.graph.get("figsize", (11, 9)))
     pos = _layout(network)
 
     nx.draw_networkx_nodes(
         network, pos, ax=ax,
-        node_size=2000,
+        node_size=network.graph.get("node_size", 2000),
         node_color=_node_color_map(network),
         edgecolors="black",
         linewidths=1.0,
@@ -95,7 +99,10 @@ def plot_network_solution(
     )
     nx.draw_networkx_labels(
         network, pos,
-        labels={n: entity_mathtext(str(n)) for n in network.nodes()},
+        labels={
+            n: entity_mathtext(display_node_label(network, n))
+            for n in network.nodes()
+        },
         ax=ax,
         font_size=PLOT_FONT_SIZE,
         font_weight="bold",
@@ -125,9 +132,8 @@ def plot_network_solution(
             alpha=0.75,
         )
 
-        link_label = bar_link_label(
-            option.get("link") or option.get("users") or option_link_label(option)
-        )
+        raw_link = option.get("link") or option.get("users") or option_link_label(option)
+        link_label = display_bar_link_label(network, raw_link)
         label = f"Link {link_label}"
         if k is not None:
             label += f"  (k={k}"
@@ -138,22 +144,23 @@ def plot_network_solution(
         handle = ax.plot([], [], color=color, lw=3.5, label=label)[0]
         legend_handles.append(handle)
 
-    edge_labels = {
-        (u, v): format_float(safe_float(data.get("loss", 1.0), 1.0), ".2f")
-        for u, v, data in network.edges(data=True)
-        if u != v
-    }
-    texts = nx.draw_networkx_edge_labels(
-        network, pos,
-        edge_labels=edge_labels,
-        ax=ax,
-        font_size=PLOT_FONT_SIZE,
-        rotate=True,
-        label_pos=0.5,
-    )
-    for text in texts.values():
-        text.set_zorder(1)
-        text.set_path_effects([pe.withStroke(linewidth=3, foreground="white")])
+    if not network.graph.get("suppress_edge_labels", False):
+        edge_labels = {
+            (u, v): format_float(safe_float(data.get("loss", 1.0), 1.0), ".2f")
+            for u, v, data in network.edges(data=True)
+            if u != v
+        }
+        texts = nx.draw_networkx_edge_labels(
+            network, pos,
+            edge_labels=edge_labels,
+            ax=ax,
+            font_size=PLOT_FONT_SIZE,
+            rotate=True,
+            label_pos=0.5,
+        )
+        for text in texts.values():
+            text.set_zorder(1)
+            text.set_path_effects([pe.withStroke(linewidth=3, foreground="white")])
 
     # Reserved for per-link source annotation; left in place for future use.
     for idx, option in enumerate(combo):
@@ -174,5 +181,40 @@ def plot_network_solution(
     if legend_handles:
         ax.legend(loc="best", frameon=True, fontsize=PLOT_FONT_SIZE)
 
+    if network.graph.get("equal_aspect", False):
+        ax.set_aspect("equal", adjustable="box")
+
+        pad_x = network.graph.get("pad_x", 0.5)
+        pad_y = network.graph.get("pad_y", 0.5)
+
+        xs = [xy[0] for xy in pos.values()]
+        ys = [xy[1] for xy in pos.values()]
+
+        x_min, x_max = min(xs) - pad_x, max(xs) + pad_x
+        y_min, y_max = min(ys) - pad_y, max(ys) + pad_y
+
+        # Optional fixed data scale. Smaller number = larger network on canvas.
+        data_units_per_inch = network.graph.get("data_units_per_inch", None)
+
+        if data_units_per_inch is not None:
+            x_mid = 0.5 * (x_min + x_max)
+            y_mid = 0.5 * (y_min + y_max)
+
+            fig_w, fig_h = fig.get_size_inches()
+
+            half_x = 0.5 * fig_w * data_units_per_inch
+            half_y = 0.5 * fig_h * data_units_per_inch
+
+            ax.set_xlim(x_mid - half_x, x_mid + half_x)
+            ax.set_ylim(y_mid - half_y, y_mid + half_y)
+        else:
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min, y_max)
+
     ax.set_axis_off()
-    return save_figure(fig, outdir, filename)
+    return save_figure(
+        fig,
+        outdir,
+        filename,
+        bbox_inches=network.graph.get("bbox_inches", "tight"),
+    )

@@ -47,8 +47,10 @@ from .base import (
     safe_float,
     safe_int,
     save_figure,
+    display_bar_link_label,
+    display_legend_link_label,
+    display_source_label,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Cap-profile sampling defaults (source allocation plot)
@@ -178,7 +180,7 @@ def plot_link_utility_bars(cfg,
     ax.tick_params(axis="y", labelsize=PLOT_TICK_SIZE)
 
     ax.set_xticks(x)
-    ax.set_xticklabels([bar_link_label(t) for t in links], ha="center", fontsize=PLOT_TICK_SIZE)
+    ax.set_xticklabels([display_bar_link_label(cfg, t) for t in links], ha="center", fontsize=PLOT_TICK_SIZE)
     try:
         fig.subplots_adjust(bottom=0.16)
     except Exception:
@@ -196,6 +198,119 @@ def plot_link_utility_bars(cfg,
 
     return save_figure(fig, outdir, filename)
 
+def plot_link_normalized_rate_bars(
+    cfg,
+    best_result: dict[str, Any] | None,
+    outdir: str | Path = "outputs",
+    filename: str = "link_normalized_rate_bars.svg",
+):
+    """
+    Per-link normalized-rate bars.
+
+    Each bar shows:
+
+        100 * actual raw rate / infinite-resource upper-bound raw rate
+
+    This is easier to explain than log utility because the y-axis is a
+    direct percentage of the best physically allowed rate for that link.
+    """
+    if best_result is None:
+        return None
+
+    combo = list(best_result.get("combo", []))
+    allocation = best_result.get("allocation", {}) or {}
+    if not combo:
+        return None
+
+    rows = []
+
+    for idx, opt in enumerate(combo):
+        alloc = allocation.get(id(opt), {}) if allocation else {}
+        if not alloc:
+            alloc = allocation.get(idx, {})
+        if not alloc and "allocation" in opt:
+            alloc = opt["allocation"]
+
+        actual_log_rate = per_link_log_utility(opt, alloc)
+        best_log_rate = safe_float(opt.get("link_ub"), float("nan"))
+
+        if np.isfinite(actual_log_rate) and np.isfinite(best_log_rate):
+            normalized_pct = 10.0 ** (actual_log_rate - best_log_rate)
+        else:
+            normalized_pct = float("nan")
+
+        link = opt.get("link") or opt.get("users") or option_link_label(opt)
+
+        rows.append({
+            "link": link,
+            "link_key": canonical_link_tuple(link),
+            "combo_index": idx,
+            "normalized_pct": normalized_pct,
+        })
+
+    rows = [r for r in rows if np.isfinite(r["normalized_pct"])]
+    if not rows:
+        return None
+
+    desired_order = _ordered_link_keys(best_result)
+    if desired_order:
+        rank = {k: i for i, k in enumerate(desired_order)}
+        rows.sort(key=lambda r: rank.get(r.get("link_key"), 10**9))
+
+    links = [r["link"] for r in rows]
+    vals = np.array([r["normalized_pct"] for r in rows], dtype=float)
+
+    spacing = 1.5 if len(links) > 10 else 1.0
+    x = np.arange(len(links), dtype=float) * spacing
+
+    if cfg.topology == "ring":
+        fig, ax = make_figure(figsize=(20, 5))
+    else:
+        fig, ax = make_figure(figsize=(12, 3.8))
+
+    ax.bar(
+        x,
+        vals,
+        width=0.46,
+        color=GEM[0],
+        edgecolor="black",
+        linewidth=1.0,
+    )
+
+    ax.axhline(
+        1,
+        linestyle="--",
+        linewidth=1.4,
+        color="black",
+    )
+
+    ymax = max(1.05, float(np.nanmax(vals)) * 1.10)
+    ax.set_ylim(0.0, ymax)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [display_bar_link_label(cfg, t) for t in links],
+        ha="center",
+        fontsize=PLOT_TICK_SIZE,
+    )
+
+    ax.set_ylabel(r"$R_\ell/R_{\ell}^{\infty}$", fontsize=PLOT_LABEL_SIZE)
+
+    ax.tick_params(axis="x", which="both", bottom=False, top=False, length=0)
+    ax.tick_params(axis="y", which="both", left=True, right=False, length=6, width=1)
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.margins(x=0.10)
+    #ax.legend(fontsize=PLOT_LEGEND_SIZE, frameon=True)
+
+    try:
+        fig.subplots_adjust(bottom=0.16)
+    except Exception:
+        pass
+
+    return save_figure(fig, outdir, filename)
 
 # --------------------------------------------------------------------------- #
 # Public: utility comparison scatter
@@ -429,6 +544,7 @@ def source_allocation(
     sources,
     freqs_by_link=None,
     *,
+    label_context=None,
     link_order=None,
     manual_bins=None,
     side="right",
@@ -689,7 +805,7 @@ def source_allocation(
         ax.text(
             label_x,
             -0.12 * height,
-            entity_mathtext(sname),
+            entity_mathtext(display_source_label(label_context, sname)),
             ha="center",
             va="top",
             fontsize=mpl.rcParams["axes.labelsize"],
@@ -713,11 +829,7 @@ def source_allocation(
                 patches.append(Patch(facecolor=link_to_color[label], edgecolor="black",
                                      label="Unassigned"))
             else:
-                m = re.findall(r"(?i)[us](?:er)?\d+", label)
-                nice = (
-                    f"Link {entity_mathtext(m[0])}{entity_mathtext(m[1])}"
-                    if len(m) >= 2 else label
-                )
+                nice = display_legend_link_label(label_context, label)
                 patches.append(Patch(facecolor=link_to_color[label], edgecolor="black",
                                      label=nice))
 
@@ -786,6 +898,7 @@ def plot_source_allocation(cfg,
         previous_best_results=previous_best_results,
         sources=sources,
         freqs_by_link=freqs_by_link,
+        label_context=cfg,
         link_order=_ordered_link_keys(best_result),
         **kwargs,
     )

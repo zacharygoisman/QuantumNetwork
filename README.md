@@ -1,5 +1,5 @@
 # QuantumNetwork
-Research project for optimizing quantum network routing and spectrum allocation, with the eventual of being used for a physical system.
+Research project for optimizing quantum network routing and spectrum allocation, with the eventual goal of being used for a physical system.
 
 ## Quick Start
 
