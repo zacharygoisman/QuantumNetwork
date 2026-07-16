@@ -77,6 +77,11 @@ def allocate_combo(combo, network, sources, cfg):
                 _ALLOC_CACHE[cache_key] = cached
 
         for i, o in enumerate(opts):
+            # `prelog` is the loss-normalized ("reduced") rate returned by the
+            # MINLP. Convert to the physical log10 rate by subtracting the
+            # end-to-end path loss (dB -> factor of 10) and the source-rate
+            # normalization tau. We accumulate log10-rates so the total
+            # utility is sum(log10 R_i), i.e. log10 of the product of rates.
             reduced_rate = float(cached["prelog"][i])
             reduced_log_rate = math.log10(reduced_rate)
 
@@ -95,6 +100,8 @@ def allocate_combo(combo, network, sources, cfg):
                 "k": int(cached["k"][i]),
                 "mu": float(cached["mu"]),
                 "prelog_rate": reduced_rate,
+                # Physical (loss-and-tau-corrected) log10 rate for this link;
+                # downstream reporting compares this against link_ub.
                 "link_utility": physical_log_rate,
             }
 
