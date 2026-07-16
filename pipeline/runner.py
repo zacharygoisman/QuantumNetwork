@@ -159,11 +159,21 @@ def run_pipeline(cfg):
     # 8. CSVs
 
     if results:
-        save_df(results_summary_df(results), outdir / "all_results_summary.csv")
-        save_df(all_results_link_rows_df(results), outdir / "all_results_links.csv")
-        
-    save_json(best, outdir / "best_result.json")
-    save_df(combo_to_rows(best, combo_idx=None), outdir / "best_links.csv")
+        save_df(
+            results_summary_df(results),
+            outdir / "all_results_summary.csv",
+        )
+        save_df(
+            all_results_link_rows_df(results),
+            outdir / "all_results_links.csv",
+        )
+        save_json(best, outdir / "best_result.json")
+
+        best_links_df = combo_to_rows(best, combo_idx=None)
+        best_links_df["normalized_rate"] = 10.0 ** (
+            best_links_df["link_utility"] - best_links_df["link_ub"]
+        )
+        save_df(best_links_df, outdir / "best_links.csv")
 
     # 9. Plots first so node positions get cached into network.graph["pos"]
     if cfg.topology == "ring":

@@ -15,18 +15,14 @@ from pipeline.runner import run_pipeline
 
 
 def main():
-    #cfg = paper_exhaustive()
-    cfg = paper_ring()
-    #cfg = paper_dense()
-    #cfg = two_source_three_users_custom()
-    #cfg = contention()
-    #cfg = simple_contention()
-
     #edit custom_topology.py in config
     #cfg = my_custom_network()  
+
+    #Paper Figures
+    cfg = simple_contention()
+    cfg = paper_ring()
     cfg = manhattan_ilec()
 
-    #cfg = star()
     result = run_pipeline(cfg)
     #print(result)
 
