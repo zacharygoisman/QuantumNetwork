@@ -9,7 +9,7 @@ then have routing and spectrum allocation optimally solved.
 #2026.03.20
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#
 
-from config.presets import contention, manhattan_ilec, paper_dense, simple_contention, star, paper_exhaustive, paper_ring, two_source_three_users_custom, super_dense
+from config.presets import contention, manhattan_ilec, paper_dense, simple_contention, star, paper_exhaustive, paper_ring, two_source_three_users_custom, super_dense, paper_dense_copy
 from config.custom_topology import my_custom_network
 from pipeline.runner import run_pipeline
 
@@ -20,10 +20,10 @@ def main():
 
     # Paper figures. Only the last assignment actually runs; comment out
     # the ones below the one you want to reproduce.
-    cfg = simple_contention()
-    cfg = paper_ring()
-    cfg = manhattan_ilec()
-
+    #cfg = simple_contention()
+    # cfg = paper_ring()
+    # cfg = manhattan_ilec()
+    cfg = paper_dense_copy()
     result = run_pipeline(cfg)
     #print(result)
 

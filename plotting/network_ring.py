@@ -237,12 +237,18 @@ def plot_network_solution_ring(
     outdir: str | Path = "outputs",
     filename: str = "network_plot.svg",
 ):
-    """Draw the network with the chosen link paths overlaid; save as SVG."""
-    if best_result is None:
-        return None
+    """Draw the network with the chosen link paths overlaid; save as SVG.
 
-    combo = sorted_options_by_link(best_result.get("combo", []))
-    allocation = best_result.get("allocation", {}) or {}
+    When ``best_result`` is None (e.g. an infeasible run), still draw the
+    raw topology so callers editing the graph interactively can see it.
+    Overlays and legend are omitted in that case.
+    """
+    if best_result is None:
+        combo = []
+        allocation = {}
+    else:
+        combo = sorted_options_by_link(best_result.get("combo", []))
+        allocation = best_result.get("allocation", {}) or {}
 
     # Make the plot taller to give more vertical room for separated users
     fig, ax = make_figure(figsize=(19, 10))

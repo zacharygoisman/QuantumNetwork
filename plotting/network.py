@@ -74,12 +74,18 @@ def plot_network_solution(
     outdir: str | Path = "outputs",
     filename: str = "network_plot.svg",
 ):
-    """Draw the network with the chosen link paths overlaid; save as SVG."""
-    if best_result is None:
-        return None
+    """Draw the network with the chosen link paths overlaid; save as SVG.
 
-    combo = sorted_options_by_link(best_result.get("combo", []))
-    allocation = best_result.get("allocation", {}) or {}
+    When ``best_result`` is None (e.g. an infeasible run), still draw the
+    raw topology so callers editing the graph interactively can see what
+    they have. Overlays and legend are simply omitted in that case.
+    """
+    if best_result is None:
+        combo = []
+        allocation = {}
+    else:
+        combo = sorted_options_by_link(best_result.get("combo", []))
+        allocation = best_result.get("allocation", {}) or {}
 
     fig, ax = make_figure(figsize=network.graph.get("figsize", (11, 9)))
     pos = _layout(network)
@@ -178,8 +184,9 @@ def plot_network_solution(
         #         path_effects=[pe.withStroke(linewidth=2, foreground="white")],
         #     )
 
-    if legend_handles:
-        ax.legend(loc="best", frameon=True, fontsize=PLOT_FONT_SIZE)
+
+    # if legend_handles:
+    #     ax.legend(loc="best", frameon=True, fontsize=PLOT_FONT_SIZE)
 
     if network.graph.get("equal_aspect", False):
         ax.set_aspect("equal", adjustable="box")
