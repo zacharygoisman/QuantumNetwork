@@ -56,6 +56,24 @@ def paper_dense():
         random_seed = 3,
         use_best_first = True,
     )
+def paper_dense_copy():
+    #Density lowered from 0.15 -> 0.07 to keep network_plot.svg readable
+    #on the larger graph: fewer gray physical edges means fewer loss
+    #labels crowding the plot.
+    return Config(
+        num_usr=20,
+        num_src=3,
+        num_lnks=6,
+        num_channels= [7, 7, 7],
+        topology="dense",
+        density= 0.07,
+        fidelity_limit= [0.9398199004875115, 0.9335799370727665, 0.9453218374098463, 0.9054871178386069, 0.9029770692798971, 0.9103397555478387],#[np.random.uniform(0.90, 0.95) for _ in range(6)],
+        dark_count_rate= [242.48973775874953, 607.416261888995, 798.1705870142911, 264.2816643599733, 687.9398242594576, 260.8033389904631, 952.6118693337143, 365.3253559752819, 451.50292448125356, 323.9246409797049, 406.61248760988224, 691.665750795401, 518.7724192, 234.0918277, 862.4013558, 145.7286941, 703.6045129, 389.2158734, 611.9873402, 279.4560318],#[np.random.uniform(100, 1000) for _ in range(20)],
+        max_combos = 1,
+        n_paths_per_leg = 4,
+        random_seed = 3,
+        use_best_first = True,
+    )
 
 def super_dense():
     #Configuration for Figure 9 of "Efficient routing and spectrum allocation in arbitrary flex-grid entanglement networks"

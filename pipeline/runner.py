@@ -34,12 +34,62 @@ def run_pipeline(cfg):
     """Run the full pipeline (build, route, combo, evaluate, select, output) and
     return the list of evaluated results, or None if no feasible solution is found."""
     print("=== RUN PIPELINE ===")
-    t0 = time.time()
 
     #1. Build network
     network, sources, links = build_network(cfg)
+
+    return run_pipeline_prebuilt(cfg, network, sources, links)
+
+
+def run_pipeline_prebuilt(cfg, network, sources, links):
+    """Run the pipeline against a *pre-built* network.
+
+    Unlike :func:`run_pipeline`, this entry point does not invoke
+    :func:`network.builder.build_network`; the caller is responsible for
+    supplying the graph, sources and links (typically after editing them
+    with :mod:`network.link_editor`).
+
+    Every invocation re-runs routing and allocation from scratch against
+    the arguments passed here; no state is carried over from a previous
+    call.
+
+    Returns the list of evaluated results, or None if no feasible
+    solution is found.
+    """
+    # --- validate inputs before doing any work or writing any artifacts ---
+    if network is None:
+        raise ValueError("run_pipeline_prebuilt: network must not be None")
+    if sources is None:
+        raise ValueError("run_pipeline_prebuilt: sources must not be None")
+    if links is None:
+        raise ValueError("run_pipeline_prebuilt: links must not be None")
+
+    graph_nodes = set(network.nodes())
+
+    # every source label must be present as a node
+    missing_sources = [s for s in sources if s not in graph_nodes]
+    if missing_sources:
+        raise ValueError(
+            "run_pipeline_prebuilt: sources reference nodes not in the "
+            f"network: {missing_sources!r}"
+        )
+
+    # every user endpoint of every link must be present as a node
+    missing_link_nodes = []
+    for pair in links:
+        for endpoint in (pair[0], pair[1]):
+            if endpoint not in graph_nodes:
+                missing_link_nodes.append(endpoint)
+    if missing_link_nodes:
+        raise ValueError(
+            "run_pipeline_prebuilt: links reference nodes not in the "
+            f"network: {missing_link_nodes!r}"
+        )
+
+    t0 = time.time()
+
     if cfg.verbose:
-        print(f"Network built in {time.time() - t0:.2f}s")
+        print(f"Network ready in {time.time() - t0:.2f}s")
 
     #2. Routing
     paths = build_path_options(network, links, sources, cfg)
@@ -102,8 +152,21 @@ def run_pipeline(cfg):
     total_pipeline_time = time.time() - t0
 
     if best is None:
+        # No feasible solution: skip metrics/CSVs but still draw the raw
+        # topology so callers who are iteratively editing the graph can
+        # see their edits reflected in outputs/network_plot.svg.
         print("No feasible solution found.")
         print(f"Total pipeline time: {total_pipeline_time:.3f} s")
+
+        outdir = ensure_output_dir(cfg.output_directory)
+        if cfg.topology == "ring":
+            plot_network_solution_ring(network, None, outdir=outdir)
+        elif cfg.topology_name == "manhattan":
+            cfg.node_label_map = BALI_LABEL_MAP
+            plot_manhattan(network, None, outdir=outdir)
+        else:
+            plot_network_solution(network, None, outdir=outdir)
+
         return None
 
     # 6. Summary metrics
