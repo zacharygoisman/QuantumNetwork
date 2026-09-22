@@ -33,7 +33,9 @@ def my_custom_network():
 
         # ── Graph edges ──────────────────────────────────────────────────────
         # Every physical fibre connection in the network.
-        # Format: ("NodeA", "NodeB")  — loss is assigned randomly from cfg.loss_range.
+        # Format:
+        #   ("NodeA", "NodeB")           — loss drawn randomly from cfg.loss_range
+        #   ("NodeA", "NodeB", loss_db)  — explicit loss in dB for this edge
         #
         # Node naming:
         #   Sources : S1, S2, …

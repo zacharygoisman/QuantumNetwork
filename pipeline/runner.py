@@ -18,6 +18,7 @@ from data.save import save_json, save_df, ensure_output_dir, build_replot_payloa
 from data.dataframe import results_summary_df, combo_to_rows, all_results_link_rows_df
 from plotting.network import plot_network_solution
 from plotting.network_ring import plot_network_solution_ring
+from plotting.network_manhattan import plot_manhattan, BALI_LABEL_MAP
 from plotting.utility import (
     plot_link_utility_bars,
     plot_link_normalized_rate_bars,
@@ -246,8 +247,35 @@ def run_pipeline(cfg):
     save_df(combo_to_rows(best, combo_idx=None), outdir / "best_links.csv")
 
     # 9. Plots first so node positions get cached into network.graph["pos"]
-    if cfg.topology == "ring":
-        plot_network_solution_ring(network, best, outdir=outdir)
+    #
+    # A named topology/preset gets first priority.  This keeps the Manhattan
+    # ILEC case from falling through to the generic plot_network_solution().
+    topology_name = str(
+        getattr(cfg, "topology_name", "")
+    ).strip().lower()
+
+    topology = str(
+        getattr(cfg, "topology", "")
+    ).strip().lower()
+
+    if topology_name in {"manhattan", "manhattan_ilec"} or topology == "manhattan":
+        # Attach the Bali et al. A-Q label mapping so the plot uses the
+        # original ILEC node names instead of the internal S*/U* IDs.
+        cfg.node_label_map = BALI_LABEL_MAP
+
+        plot_manhattan(
+            network,
+            best,
+            outdir=outdir,
+        )
+
+    elif topology == "ring":
+        plot_network_solution_ring(
+            network,
+            best,
+            outdir=outdir,
+        )
+
         plot_paper_combined_solution_ring(
             network,
             best,
@@ -258,8 +286,13 @@ def run_pipeline(cfg):
             font_size=8.0,
             layout="stacked",
         )
+
     else:
-        plot_network_solution(network, best, outdir=outdir)
+        plot_network_solution(
+            network,
+            best,
+            outdir=outdir,
+        )
 
     if results:
         plot_link_utility_bars(

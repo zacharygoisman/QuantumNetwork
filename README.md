@@ -273,6 +273,6 @@ Paper TBD
 
 ## License
 
-MIT. You can use this project freely.
+This project is licensed under the MIT License. See the LICENSE file for details.
 
 
