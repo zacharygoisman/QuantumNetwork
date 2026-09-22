@@ -6,9 +6,8 @@ Functions to compute candidate paths for each user pair (link) based on the netw
 #ZHG
 #2026.03.24
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#
-import math
-
 import networkx as nx
+import math
 from analysis.metrics import compute_ub_max
 from routing.pairing import compute_path_loss, compute_y
 
@@ -37,8 +36,39 @@ def build_path_options(network, links, sources, cfg):
                     y1 = compute_y(loss1, cfg.tau, d_u1)
                     y2 = compute_y(loss2, cfg.tau, d_u2)
 
-                    path_ub_red = compute_ub_max(y1, y2, f_min=f_req)
-                    path_ub = path_ub_red - (loss1 + loss2) / 10.0 - math.log10(cfg.tau) #Determine maximum upper bound for this path
+                    total_loss = loss1 + loss2
+
+                    # compute_ub_max() returns the upper bound for the reduced
+                    # coincidence polynomial in log10 units.  Convert that to
+                    # the PHYSICAL log10(rate), matching allocation/allocator.py:
+                    #
+                    #   log10(R) = log10(g)
+                    #              - total_loss / 10
+                    #              - log10(tau)
+                    #
+                    # This is essential when dark counts are zero: y1=y2=0 for
+                    # every route, so the reduced bound alone cannot distinguish
+                    # a 0-dB route from a 10-dB route.
+                    reduced_path_ub = compute_ub_max(
+                        y1,
+                        y2,
+                        f_min=f_req,
+                    )
+
+                    if (
+                        reduced_path_ub is None
+                        or not math.isfinite(float(reduced_path_ub))
+                    ):
+                        path_ub = float("-inf")
+                    else:
+                        if float(cfg.tau) <= 0.0:
+                            raise ValueError("cfg.tau must be positive.")
+
+                        path_ub = (
+                            float(reduced_path_ub)
+                            - float(total_loss) / 10.0
+                            - math.log10(float(cfg.tau))
+                        )
 
                     candidates.append({
                         "link": (u1, u2),
@@ -49,11 +79,10 @@ def build_path_options(network, links, sources, cfg):
                         "path2": p2,
                         "y1": y1,
                         "y2": y2,
-                        "tau": cfg.tau,
                         "dark_count_1": d_u1,
                         "dark_count_2": d_u2,
                         "fidelity_limit": f_req,
-                        "total_loss": loss1 + loss2,
+                        "total_loss": total_loss,
                         "path_ub": path_ub,
                     })
         if not candidates:

@@ -25,8 +25,8 @@ from plotting.utility import (
     plot_source_allocation,
 )
 from plotting.composite import plot_paper_combined_solution_ring
-from plotting.network_manhattan import plot_manhattan
-from plotting.network_manhattan import BALI_LABEL_MAP
+
+
 from analysis.metrics import per_link_ub_value
 
 
@@ -47,7 +47,9 @@ def run_pipeline(cfg):
         print(f"Paths computed in {time.time() - t0:.2f}s")
 
     #3. Generate combos
-    total_possible_combos = ((cfg.n_paths_per_leg ** 2) * len(sources)) ** len(links)
+    total_possible_combos = 1
+    for opts in paths:
+        total_possible_combos *= len(opts)
 
     combos_to_test_cap = total_possible_combos
     if cfg.max_combos is not None:
@@ -109,37 +111,113 @@ def run_pipeline(cfg):
     # 6. Summary metrics
     total_network_utility = float(best.get("utility", float("nan")))
 
+    if cfg.verbose:
+        print("\n=== NORMALIZED-RATE DIAGNOSTIC ===")
+        alloc_map_diag = best.get("allocation", {}) or {}
+        for i, opt in enumerate(best.get("combo", [])):
+            alloc_diag = alloc_map_diag.get(id(opt), {})
+            if not alloc_diag:
+                alloc_diag = alloc_map_diag.get(i, {})
+            if not alloc_diag and "allocation" in opt:
+                alloc_diag = opt["allocation"]
+
+            actual_log_diag = alloc_diag.get("link_utility")
+            ub_log_diag = opt.get("link_ub")
+
+            pct_diag = None
+            if actual_log_diag is not None and ub_log_diag is not None:
+                pct_diag = 100.0 * 10.0 ** (
+                    float(actual_log_diag) - float(ub_log_diag)
+                )
+
+            print(
+                f"link={opt.get('link')} "
+                f"source={opt.get('source')} "
+                f"loss={opt.get('total_loss')} dB "
+                f"actual_log10R={actual_log_diag} "
+                f"path_ub={opt.get('path_ub')} "
+                f"link_ub={ub_log_diag} "
+                f"normalized_pct={pct_diag}"
+            )
+
     total_utility_upper_bound_limit = float(
         sum(float(opt.get("link_ub", 0.0)) for opt in best.get("combo", []))
     )
 
     alloc_map = best.get("allocation", {}) or {}
-    per_link_pct = []
+    per_link_rate_ratios = []
 
     for i, opt in enumerate(best.get("combo", [])):
-        alloc = alloc_map.get(id(opt), {}) if alloc_map else {}
+        alloc = alloc_map.get(id(opt), {})
         if not alloc:
             alloc = alloc_map.get(i, {})
         if not alloc and "allocation" in opt:
             alloc = opt["allocation"]
 
+        actual_rate = alloc.get(
+            "prelog_rate"
+        )
+
+        # Compare the achieved PHYSICAL link rate with the best PHYSICAL
+        # infinite-resource upper bound for this requested link.
+        #
+        # allocation/allocator.py stores link_utility in log10(rate) units.
         actual_log_rate = alloc.get("link_utility")
-        best_log_rate = opt.get("link_ub")
 
-        if actual_log_rate is not None and best_log_rate is not None:
-            actual_log_rate = float(actual_log_rate)
-            best_log_rate = float(best_log_rate)
+        if actual_log_rate is None:
+            # Backward-compatible fallback for older allocation records.
+            if (
+                actual_rate is not None
+                and float(actual_rate) > 0.0
+                and float(cfg.tau) > 0.0
+            ):
+                import math
+                actual_log_rate = (
+                    math.log10(float(actual_rate))
+                    - float(opt.get("total_loss", 0.0)) / 10.0
+                    - math.log10(float(cfg.tau))
+                )
 
-            # 100 * R_actual / R_best_infinite
-            per_link_pct.append(100.0 * 10.0 ** (actual_log_rate - best_log_rate))
+        link_ub_log10 = opt.get("link_ub")
+
+        if (
+            actual_log_rate is not None
+            and link_ub_log10 is not None
+        ):
+            per_link_rate_ratios.append(
+                10.0 ** (
+                    float(actual_log_rate)
+                    - float(link_ub_log10)
+                )
+            )
 
     avg_link_utility_gap = (
-        total_utility_upper_bound_limit - total_network_utility
+        total_utility_upper_bound_limit
+        - total_network_utility
     ) / len(links)
 
-    avg_pct_of_link_upper_bound = (
-        sum(per_link_pct) / len(per_link_pct) if per_link_pct else float("nan")
-    )
+    if per_link_rate_ratios:
+        import math
+
+        geometric_mean_rate_ratio = math.exp(
+            sum(
+                math.log(ratio)
+                for ratio
+                in per_link_rate_ratios
+            )
+            / len(
+                per_link_rate_ratios
+            )
+        )
+
+        geometric_mean_pct_of_link_upper_bound = (
+            100.0
+            * geometric_mean_rate_ratio
+        )
+    else:
+        geometric_mean_pct_of_link_upper_bound = (
+            float("nan")
+        )
 
     print("\n=== PIPELINE SUMMARY ===")
     print(f"Total pipeline time: {total_pipeline_time:.3f} s")
@@ -150,30 +228,22 @@ def run_pipeline(cfg):
         f"{avg_link_utility_gap:.6e}"
     )
     print(
-        "Average percent of best-path infinite-resource rate: "
-        f"{avg_pct_of_link_upper_bound:.6f}%"
+        "Geometric-mean link rate "
+        "(% of infinite-resource upper bound): "
+        f"{geometric_mean_pct_of_link_upper_bound:.6f}"
     )
+
     # 7. Output dir
     outdir = ensure_output_dir(cfg.output_directory)
 
     # 8. CSVs
 
     if results:
-        save_df(
-            results_summary_df(results),
-            outdir / "all_results_summary.csv",
-        )
-        save_df(
-            all_results_link_rows_df(results),
-            outdir / "all_results_links.csv",
-        )
-        save_json(best, outdir / "best_result.json")
-
-        best_links_df = combo_to_rows(best, combo_idx=None)
-        best_links_df["normalized_rate"] = 10.0 ** (
-            best_links_df["link_utility"] - best_links_df["link_ub"]
-        )
-        save_df(best_links_df, outdir / "best_links.csv")
+        save_df(results_summary_df(results), outdir / "all_results_summary.csv")
+        save_df(all_results_link_rows_df(results), outdir / "all_results_links.csv")
+        
+    save_json(best, outdir / "best_result.json")
+    save_df(combo_to_rows(best, combo_idx=None), outdir / "best_links.csv")
 
     # 9. Plots first so node positions get cached into network.graph["pos"]
     if cfg.topology == "ring":
@@ -188,16 +258,26 @@ def run_pipeline(cfg):
             font_size=8.0,
             layout="stacked",
         )
-    elif cfg.topology_name == "manhattan":
-        cfg.node_label_map = BALI_LABEL_MAP
-        plot_manhattan(network, best, outdir=outdir)
     else:
         plot_network_solution(network, best, outdir=outdir)
 
     if results:
-        plot_link_utility_bars(cfg, best, outdir=outdir)
-        plot_link_normalized_rate_bars(cfg, best, outdir=outdir)
-        plot_utility_comparison(results, outdir=outdir)
+        plot_link_utility_bars(
+            cfg,
+            best,
+            outdir=outdir,
+        )
+
+        plot_link_normalized_rate_bars(
+            cfg,
+            best,
+            outdir=outdir,
+        )
+
+        plot_utility_comparison(
+            results,
+            outdir=outdir,
+        )
 
     plot_source_allocation(cfg, best, sources, outdir=outdir)
 
@@ -207,7 +287,13 @@ def run_pipeline(cfg):
         "total_network_utility": total_network_utility,
         "total_utility_upper_bound_limit": total_utility_upper_bound_limit,
         "avg_link_utility_gap": avg_link_utility_gap,
-        "avg_pct_of_best_path_infinite_resource_rate": avg_pct_of_link_upper_bound,
+        "geometric_mean_link_rate_pct_of_upper_bound": (
+            geometric_mean_pct_of_link_upper_bound
+        ),
+        # Backward-compatible key; now stores the geometric-mean percentage.
+        "avg_link_rate_infinite_resource_maximum": (
+            geometric_mean_pct_of_link_upper_bound
+        ),
     }
 
     payload = build_replot_payload(

@@ -47,10 +47,8 @@ from .base import (
     safe_float,
     safe_int,
     save_figure,
-    display_bar_link_label,
-    display_legend_link_label,
-    display_source_label,
 )
+from analysis.metrics import per_link_ub_value
 
 # --------------------------------------------------------------------------- #
 # Cap-profile sampling defaults (source allocation plot)
@@ -93,7 +91,13 @@ def _best_rows(best_result: dict[str, Any] | None) -> list[dict[str, Any]]:
             "link": link,
             "link_key": canonical_link_tuple(link),
             "combo_index": idx,
-            "link_utility": per_link_log_utility(opt, alloc),
+            # allocation/allocator.py stores the physical log10(rate), including
+            # path loss and the 1/tau factor.  Prefer it so this quantity is in
+            # the same units as path_ub/link_ub.
+            "link_utility": safe_float(
+                alloc.get("link_utility"),
+                per_link_log_utility(opt, alloc),
+            ),
             "path_ub": safe_float(opt.get("path_ub"), float("nan")),
             "link_ub": safe_float(opt.get("link_ub"), float("nan")),
             "k": alloc.get("k"),
@@ -180,7 +184,7 @@ def plot_link_utility_bars(cfg,
     ax.tick_params(axis="y", labelsize=PLOT_TICK_SIZE)
 
     ax.set_xticks(x)
-    ax.set_xticklabels([display_bar_link_label(cfg, t) for t in links], ha="center", fontsize=PLOT_TICK_SIZE)
+    ax.set_xticklabels([bar_link_label(t) for t in links], ha="center", fontsize=PLOT_TICK_SIZE)
     try:
         fig.subplots_adjust(bottom=0.16)
     except Exception:
@@ -205,14 +209,23 @@ def plot_link_normalized_rate_bars(
     filename: str = "link_normalized_rate_bars.svg",
 ):
     """
-    Per-link normalized-rate bars.
+    Per-link normalized-rate bars with a geometric-mean summary line.
 
-    Each bar shows:
+    Each bar shows the achieved rate for one requested link as a percentage
+    of that link's infinite-resource upper-bound rate:
 
-        100 * actual raw rate / infinite-resource upper-bound raw rate
+        p_l = 100 * R_l / R_l^UB
 
-    This is easier to explain than log utility because the y-axis is a
-    direct percentage of the best physically allowed rate for that link.
+    The dashed summary line is the geometric mean of those per-link ratios:
+
+        G = 100 * (prod_l R_l / R_l^UB)^(1/L)
+
+    Equivalently, in log-rate form:
+
+        G = 100 * 10^[ (1/L) * sum_l log10(R_l / R_l^UB) ]
+
+    This keeps the intuitive per-link percentages while making the aggregate
+    summary consistent with the sum-log objective used by the paper.
     """
     if best_result is None:
         return None
@@ -231,86 +244,282 @@ def plot_link_normalized_rate_bars(
         if not alloc and "allocation" in opt:
             alloc = opt["allocation"]
 
-        actual_log_rate = per_link_log_utility(opt, alloc)
-        best_log_rate = safe_float(opt.get("link_ub"), float("nan"))
+        actual_rate = safe_float(
+            alloc.get("prelog_rate"),
+            float("nan"),
+        )
 
-        if np.isfinite(actual_log_rate) and np.isfinite(best_log_rate):
-            normalized_pct = 10.0 ** (actual_log_rate - best_log_rate)
+        # IMPORTANT: normalize PHYSICAL rate against the best PHYSICAL
+        # infinite-resource upper bound for this requested link.
+        #
+        # allocation/allocator.py stores:
+        #   link_utility = log10(prelog_rate)
+        #                  - total_loss/10
+        #                  - log10(tau)
+        #
+        # routing/paths.py stores link_ub in those same physical log10(rate)
+        # units after the companion fix.
+        actual_log_rate = safe_float(
+            alloc.get("link_utility"),
+            float("nan"),
+        )
+
+        # Backward-compatible fallback if an older allocation record does not
+        # contain link_utility.
+        if (
+            not np.isfinite(actual_log_rate)
+            and np.isfinite(actual_rate)
+            and actual_rate > 0.0
+            and float(cfg.tau) > 0.0
+        ):
+            actual_log_rate = (
+                np.log10(float(actual_rate))
+                - float(opt.get("total_loss", 0.0)) / 10.0
+                - np.log10(float(cfg.tau))
+            )
+
+        link_ub_log10 = safe_float(
+            opt.get("link_ub"),
+            float("nan"),
+        )
+
+        if (
+            np.isfinite(actual_log_rate)
+            and np.isfinite(link_ub_log10)
+        ):
+            normalized_fraction = float(
+                10.0 ** (
+                    float(actual_log_rate)
+                    - float(link_ub_log10)
+                )
+            )
+            normalized_pct = (
+                100.0
+                * normalized_fraction
+            )
         else:
+            normalized_fraction = float("nan")
             normalized_pct = float("nan")
 
-        link = opt.get("link") or opt.get("users") or option_link_label(opt)
+        link = (
+            opt.get("link")
+            or opt.get("users")
+            or option_link_label(opt)
+        )
 
         rows.append({
             "link": link,
             "link_key": canonical_link_tuple(link),
             "combo_index": idx,
+            "normalized_fraction": normalized_fraction,
             "normalized_pct": normalized_pct,
         })
 
-    rows = [r for r in rows if np.isfinite(r["normalized_pct"])]
+    rows = [
+        r
+        for r in rows
+        if (
+            np.isfinite(r["normalized_fraction"])
+            and r["normalized_fraction"] > 0.0
+        )
+    ]
+
     if not rows:
         return None
 
-    desired_order = _ordered_link_keys(best_result)
+    desired_order = _ordered_link_keys(
+        best_result
+    )
+
     if desired_order:
-        rank = {k: i for i, k in enumerate(desired_order)}
-        rows.sort(key=lambda r: rank.get(r.get("link_key"), 10**9))
+        rank = {
+            k: i
+            for i, k in enumerate(
+                desired_order
+            )
+        }
 
-    links = [r["link"] for r in rows]
-    vals = np.array([r["normalized_pct"] for r in rows], dtype=float)
+        rows.sort(
+            key=lambda r: rank.get(
+                r.get("link_key"),
+                10**9,
+            )
+        )
 
-    spacing = 1.5 if len(links) > 10 else 1.0
-    x = np.arange(len(links), dtype=float) * spacing
+    links = [
+        r["link"]
+        for r in rows
+    ]
+
+    vals_pct = np.array(
+        [
+            r["normalized_pct"]
+            for r in rows
+        ],
+        dtype=float,
+    )
+
+    fractions = np.array(
+        [
+            r["normalized_fraction"]
+            for r in rows
+        ],
+        dtype=float,
+    )
+
+    # Numerically stable geometric mean:
+    # exp(mean(log(ratio))).
+    geometric_mean_fraction = float(
+        np.exp(
+            np.mean(
+                np.log(
+                    fractions
+                )
+            )
+        )
+    )
+
+    geometric_mean_pct = (
+        100.0
+        * geometric_mean_fraction
+    )
+
+    spacing = (
+        1.5
+        if len(links) > 10
+        else 1.0
+    )
+
+    x = (
+        np.arange(
+            len(links),
+            dtype=float,
+        )
+        * spacing
+    )
 
     if cfg.topology == "ring":
-        fig, ax = make_figure(figsize=(20, 5))
+        fig, ax = make_figure(
+            figsize=(20, 5)
+        )
     else:
-        fig, ax = make_figure(figsize=(12, 3.8))
+        fig, ax = make_figure(
+            figsize=(12, 3.8)
+        )
 
     ax.bar(
         x,
-        vals,
+        vals_pct,
         width=0.46,
         color=GEM[0],
         edgecolor="black",
         linewidth=1.0,
+        label="Per-link rate",
     )
 
+    # 100% = the per-link infinite-resource reference.
     ax.axhline(
-        1,
+        100.0,
         linestyle="--",
         linewidth=1.4,
         color="black",
+        label="Infinite-resource reference",
     )
 
-    ymax = max(1.05, float(np.nanmax(vals)) * 1.10)
-    ax.set_ylim(0.0, ymax)
+    # # Aggregate quantity used throughout the paper.
+    # ax.axhline(
+    #     geometric_mean_pct,
+    #     linestyle=":",
+    #     linewidth=1.8,
+    #     color=GEM[1] if len(GEM) > 1 else "gray",
+    #     label=(
+    #         "Geometric mean "
+    #         f"({geometric_mean_pct:.1f}%)"
+    #     ),
+    # )
 
-    ax.set_xticks(x)
+    ymax = max(
+        105.0,
+        float(
+            np.nanmax(
+                np.append(
+                    vals_pct,
+                    geometric_mean_pct,
+                )
+            )
+        )
+        * 1.10,
+    )
+
+    ax.set_ylim(
+        0.0,
+        ymax,
+    )
+
+    ax.set_xticks(
+        x
+    )
+
     ax.set_xticklabels(
-        [display_bar_link_label(cfg, t) for t in links],
+        [
+            bar_link_label(t)
+            for t in links
+        ],
         ha="center",
         fontsize=PLOT_TICK_SIZE,
     )
 
-    ax.set_ylabel(r"$R_\ell/R_{\ell}^{\infty}$", fontsize=PLOT_LABEL_SIZE)
+    ax.set_ylabel(
+        "Rate (% of infinite-resource upper bound)",
+        fontsize=PLOT_LABEL_SIZE,
+    )
 
-    ax.tick_params(axis="x", which="both", bottom=False, top=False, length=0)
-    ax.tick_params(axis="y", which="both", left=True, right=False, length=6, width=1)
+    ax.tick_params(
+        axis="x",
+        which="both",
+        bottom=False,
+        top=False,
+        length=0,
+    )
 
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+    ax.tick_params(
+        axis="y",
+        which="both",
+        left=True,
+        right=False,
+        length=6,
+        width=1,
+    )
 
-    ax.margins(x=0.10)
-    #ax.legend(fontsize=PLOT_LEGEND_SIZE, frameon=True)
+    ax.spines["top"].set_visible(
+        False
+    )
+
+    ax.spines["right"].set_visible(
+        False
+    )
+
+    ax.margins(
+        x=0.10
+    )
+
+    ax.legend(
+        fontsize=PLOT_LEGEND_SIZE,
+        frameon=True,
+    )
 
     try:
-        fig.subplots_adjust(bottom=0.16)
+        fig.subplots_adjust(
+            bottom=0.16
+        )
     except Exception:
         pass
 
-    return save_figure(fig, outdir, filename)
+    return save_figure(
+        fig,
+        outdir,
+        filename,
+    )
 
 # --------------------------------------------------------------------------- #
 # Public: utility comparison scatter
@@ -544,7 +753,6 @@ def source_allocation(
     sources,
     freqs_by_link=None,
     *,
-    label_context=None,
     link_order=None,
     manual_bins=None,
     side="right",
@@ -805,7 +1013,7 @@ def source_allocation(
         ax.text(
             label_x,
             -0.12 * height,
-            entity_mathtext(display_source_label(label_context, sname)),
+            entity_mathtext(sname),
             ha="center",
             va="top",
             fontsize=mpl.rcParams["axes.labelsize"],
@@ -829,7 +1037,11 @@ def source_allocation(
                 patches.append(Patch(facecolor=link_to_color[label], edgecolor="black",
                                      label="Unassigned"))
             else:
-                nice = display_legend_link_label(label_context, label)
+                m = re.findall(r"(?i)[us](?:er)?\d+", label)
+                nice = (
+                    f"Link {entity_mathtext(m[0])}{entity_mathtext(m[1])}"
+                    if len(m) >= 2 else label
+                )
                 patches.append(Patch(facecolor=link_to_color[label], edgecolor="black",
                                      label=nice))
 
@@ -898,7 +1110,6 @@ def plot_source_allocation(cfg,
         previous_best_results=previous_best_results,
         sources=sources,
         freqs_by_link=freqs_by_link,
-        label_context=cfg,
         link_order=_ordered_link_keys(best_result),
         **kwargs,
     )

@@ -22,6 +22,128 @@ from gekko import GEKKO
 # the same source group across combos does not redo the APOPT solve.
 _ALLOC_CACHE = {}
 _ALLOC_CACHE_MAX = 8192
+_EXHAUSTIVE_K_COMBINATION_LIMIT = 10_000
+
+
+class _StaticVar:
+    """Minimal GEKKO-var-like wrapper for exhaustive solutions."""
+
+    def __init__(self, value):
+        self.value = [value]
+
+
+def _all_k_vectors(num_channels, num_links, per_link_k_cap=None):
+    """Yield every positive integer k-vector with sum(k) <= num_channels."""
+    if num_links <= 0 or num_channels < num_links:
+        return
+
+    ub_each = num_channels if per_link_k_cap is None else min(num_channels, int(per_link_k_cap))
+    if ub_each < 1:
+        return
+
+    current = [1] * num_links
+
+    def rec(index, remaining):
+        if index == num_links - 1:
+            for last in range(1, min(remaining, ub_each) + 1):
+                current[index] = last
+                yield list(current)
+            return
+
+        links_after_this = num_links - index - 1
+        max_here = min(remaining - links_after_this, ub_each)
+        for value in range(1, max_here + 1):
+            current[index] = value
+            yield from rec(index + 1, remaining - value)
+
+    yield from rec(0, num_channels)
+
+
+def _mu_interval_for_link(k_i, y1_i, y2_i, f_i, disc_tol=1e-15):
+    """Return [mu_low, mu_high] where link fidelity is feasible for fixed k_i."""
+    if k_i <= 0:
+        return None
+    if f_i <= 0.25:
+        return (0.0, float("inf"))
+
+    s = y1_i + y2_i
+    p = y1_i * y2_i
+    t = 4.0 * f_i - 1.0
+    a = t * (k_i ** 2)
+    b = t * k_i * (2.0 * s + 1.0) - 3.0 * k_i
+    c = 4.0 * t * p
+    disc = b * b - 4.0 * a * c
+
+    if disc < -disc_tol:
+        return None
+
+    disc = max(0.0, disc)
+    sqrt_disc = math.sqrt(disc)
+    r1 = (-b - sqrt_disc) / (2.0 * a)
+    r2 = (-b + sqrt_disc) / (2.0 * a)
+    lo = max(0.0, min(r1, r2))
+    hi = max(r1, r2)
+    if hi < 0.0:
+        return None
+    return (lo, hi)
+
+
+def _solve_exhaustive_allocation(K, fidelity_limit, y1, y2, per_link_k_cap=None):
+    """Solve a source allocation exactly by enumerating integer k vectors."""
+    N_links = len(y1)
+    best_obj = float("-inf")
+    best_mu = None
+    best_k = None
+    best_prelog = None
+    tol = 1e-10
+
+    for k in _all_k_vectors(K, N_links, per_link_k_cap=per_link_k_cap):
+        mu_lb = 0.0
+        mu_ub = float("inf")
+        feasible = True
+
+        for i in range(N_links):
+            interval = _mu_interval_for_link(k[i], y1[i], y2[i], fidelity_limit[i])
+            if interval is None:
+                feasible = False
+                break
+            mu_lb = max(mu_lb, interval[0])
+            mu_ub = min(mu_ub, interval[1])
+            if mu_lb > mu_ub + tol:
+                feasible = False
+                break
+
+        if not feasible or not math.isfinite(mu_ub):
+            continue
+
+        mu_star = max(mu_ub, 1e-15)
+        prelog = []
+        obj = 0.0
+        for i in range(N_links):
+            expr_val = (
+                mu_star**2 * (k[i] ** 2)
+                + mu_star * k[i] * (2 * (y1[i] + y2[i]) + 1)
+                + 4 * y1[i] * y2[i]
+            )
+            if expr_val <= 0.0:
+                feasible = False
+                break
+            prelog.append(expr_val)
+            obj += math.log10(expr_val)
+
+        if not feasible:
+            continue
+
+        if obj > best_obj + tol:
+            best_obj = obj
+            best_mu = mu_ub
+            best_k = list(k)
+            best_prelog = prelog
+
+    if best_k is None or best_mu is None or best_prelog is None:
+        raise RuntimeError("Infeasible allocation in exhaustive search")
+
+    return best_obj, best_mu, best_k, best_prelog
 
 
 def allocate_combo(combo, network, sources, cfg):
@@ -105,9 +227,57 @@ def allocate_combo(combo, network, sources, cfg):
     }
 
 
-def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True):
-    """Solves the MINLP for a single source's allocation problem using GEKKO with the APOPT solver."""
+def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True, solver_mode="auto"):
+    """
+    Solve one source-specific EFA allocation problem.
+
+    solver_mode:
+        "auto"       -> exhaustive when C(K,L) < 1e4, APOPT otherwise
+        "exhaustive" -> force exact integer enumeration
+        "apopt"      -> force GEKKO/APOPT
+
+    The production pipeline calls matt() without solver_mode, so its behavior
+    remains the hybrid policy.  Validation scripts can force both solvers on
+    the same problem instance for an apples-to-apples comparison.
+    """
     N_links = len(y1)
+    k_combos = math.comb(K, N_links) if K >= N_links and N_links >= 0 else 0
+
+    solver_mode = str(solver_mode).strip().lower()
+    if solver_mode not in {"auto", "exhaustive", "apopt"}:
+        raise ValueError(
+            "solver_mode must be one of: 'auto', 'exhaustive', 'apopt'."
+        )
+
+    use_exhaustive = (
+        solver_mode == "exhaustive"
+        or (
+            solver_mode == "auto"
+            and k_combos < _EXHAUSTIVE_K_COMBINATION_LIMIT
+        )
+    )
+
+    if use_exhaustive:
+        objective_value, optimal_mu, optimal_allocation, prelog_rates = _solve_exhaustive_allocation(
+            K,
+            fidelity_limit,
+            y1,
+            y2,
+            per_link_k_cap=per_link_k_cap,
+        )
+        if verbose:
+            print(
+                f"EFA solver=exhaustive, C(K,L)={k_combos:,}, "
+                f"objective={objective_value}"
+            )
+        return (
+            [_StaticVar(k) for k in optimal_allocation],
+            objective_value,
+            _StaticVar(optimal_mu),
+            prelog_rates,
+            optimal_mu,
+            optimal_allocation,
+        )
 
     # Create GEKKO model
     m = GEKKO(remote=False)
@@ -222,5 +392,8 @@ def matt(K, fidelity_limit, y1, y2, initial, per_link_k_cap=None, verbose=True):
         objective_value += math.log10(expr_val)
 
     if verbose:
-        print("Calculated Objective Value (log10):", objective_value)
+        print(
+            f"EFA solver=APOPT, C(K,L)={k_combos:,}, "
+            f"objective={objective_value}"
+        )
     return k_vars, objective_value, mu, prelog_rates, optimal_mu, optimal_allocation
