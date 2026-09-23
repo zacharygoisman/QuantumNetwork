@@ -143,8 +143,8 @@ def _draw_rate(ax, records):
 
     style_axis(
         ax,
-        xlabel="Exhaustive route configurations",
-        ylabel=r"Geometric mean rate $\rho_{opt}$ (%)",
+        xlabel="Exhaustive route configurations evaluated",
+        ylabel="Geometric-mean link rate\n(% of exhaustive routing)",
         xscale="log",
         yscale="linear",
     )
@@ -224,6 +224,7 @@ def _draw_runtime(ax, records):
         s=DEFAULT_STYLE.marker_size,
         alpha=RAW_ALPHA,
         color=COLOR_EXACT,
+        marker="s",
         edgecolors="none",
     )
 
@@ -240,11 +241,14 @@ def _draw_runtime(ax, records):
 
     style_axis(
         ax,
-        xlabel="Exhaustive route configurations",
+        xlabel="Exhaustive route configurations evaluated",
         ylabel="Runtime (s)",
         xscale="log",
         yscale="log",
     )
+
+    # Match the EFA runtime panel exactly.
+    ax.set_ylim(1.0e-4, 1.0e3)
 
     ax.grid(False, which="both", axis="both")
 
@@ -315,8 +319,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 # python .\double_yen_replot_panels.py `
 #    --records-csv ".\outputs\double_yen_exhaustive\double_yen_validation_results.csv" `

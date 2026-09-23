@@ -504,7 +504,7 @@ def manhattan_ilec():
         topology_name="manhattan",
 
         # Similar scale to your current dense example.
-        num_channels=[20, 20, 20],
+        num_channels=[24, 24, 24],
 
         # Fixed link pairs so the figure/result are reproducible.
         # These pair geographically separated / topologically separated nodes

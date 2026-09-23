@@ -336,6 +336,7 @@ def _draw_runtime_panel(ax, records):
         s=DEFAULT_STYLE.marker_size,
         alpha=RAW_ALPHA,
         color=COLOR_EXACT,
+        marker="s",
         edgecolors="none",
         zorder=2,
     )
@@ -369,10 +370,13 @@ def _draw_runtime_panel(ax, records):
     style_axis(
         ax,
         xlabel=r"Number of integer EFA allocations, $\binom{K}{L}$",
-        ylabel="Runtime (s)",
+        ylabel="",
         xscale="log",
         yscale="log",
     )
+
+    # Match the Double-Yen runtime panel exactly.
+    ax.set_ylim(1.0e-4, 1.0e3)
 
     ax.grid(False, which="both", axis="both")
 
